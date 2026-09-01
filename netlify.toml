@@ -1,0 +1,20 @@
+# Netlify build configuration.
+#
+# IMPORTANT: values set in the Netlify site UI (Site settings -> Build & deploy
+# -> "Build command" / "Publish directory") OVERRIDE this file. After committing,
+# clear those two UI fields so the settings below actually take effect, then
+# confirm the next build log's "Resolved config" no longer shows
+# `commandOrigin: ui`.
+
+[build]
+  # Mirror CI (.github/workflows/ci.yml): build every project, then docs, then
+  # stage everything into packages/examples/public. `pnpm run build` is
+  # `nx run-many -t build`, which includes @mlightcad/cad-diff-viewer-example
+  # that pre-serve (packages/examples/copyDist.js) copies into the site.
+  command = "pnpm run build && pnpm docs:build && pnpm pre-serve"
+  publish = "packages/examples/public"
+
+[build.environment]
+  NODE_VERSION = "24"
+  # Full `nx run-many -t build` needs headroom; CI uses the same value.
+  NODE_OPTIONS = "--max-old-space-size=4096"
