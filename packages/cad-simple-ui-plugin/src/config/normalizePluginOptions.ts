@@ -43,6 +43,9 @@ export function acuiNormalizePluginOptions(
           : (options.toolbar?.enabled ?? true),
       placement: options.toolbar?.placement ?? 'right',
       items: options.toolbar?.items ?? 'default',
+      ...(options.toolbar && 'excludeItems' in options.toolbar
+        ? { excludeItems: options.toolbar.excludeItems }
+        : {}),
       appendItems: options.toolbar?.appendItems,
       appendItemsAfter: options.toolbar?.appendItemsAfter,
       appendItemsBefore: options.toolbar?.appendItemsBefore,
@@ -54,6 +57,7 @@ export function acuiNormalizePluginOptions(
       size: options.toolbar?.size,
       overflow: options.toolbar?.overflow,
       showBorder: options.toolbar?.showBorder ?? true,
+      showButtonBorder: options.toolbar?.showButtonBorder ?? false,
       showSeparators: options.toolbar?.showSeparators ?? true,
       inCanvasParent: options.toolbar?.inCanvasParent === true,
       subToolbar: options.toolbar?.subToolbar

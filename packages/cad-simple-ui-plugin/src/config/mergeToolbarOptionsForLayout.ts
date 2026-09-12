@@ -2,11 +2,15 @@ import type { AcEdUiLayoutKind } from '@mlightcad/cad-simple-viewer'
 
 import type { AcUiToolbarOptions } from './types'
 
+/** Pad default: hide select/pan; touch drag pans and long-press box-selects. */
+const PAD_DEFAULT_EXCLUDE_ITEMS = ['select', 'pan']
+
 /**
  * Built-in toolbar chrome defaults for each layout kind.
  *
  * Phone: bottom bar, full width, labels, no collapse, `edgeOffset: 0`.
- * Pad/desktop: right-side bar with standard floating chrome.
+ * Pad/desktop: right-side bar with standard floating chrome. Pad also
+ * omits `select` and `pan` via {@link AcUiToolbarOptions.excludeItems}.
  *
  * @param layout - Layout kind to resolve defaults for.
  * @returns Default {@link AcUiToolbarOptions} before caller overrides.
@@ -27,6 +31,7 @@ export function acuiBuiltinToolbarOptionsForLayout(
       size: 'stretch',
       overflow: 'menu',
       showBorder: true,
+      showButtonBorder: false,
       showSeparators: true,
       showChildrenIndicator: false,
       subToolbar: {
@@ -39,7 +44,7 @@ export function acuiBuiltinToolbarOptionsForLayout(
     }
   }
 
-  return {
+  const desktopPad: AcUiToolbarOptions = {
     enabled: true,
     placement: 'right',
     items: 'default',
@@ -51,12 +56,22 @@ export function acuiBuiltinToolbarOptionsForLayout(
     size: 'auto',
     overflow: 'menu',
     showBorder: true,
+    showButtonBorder: false,
     showSeparators: true,
     showChildrenIndicator: true,
     subToolbar: {
       replaceOnNested: false
     }
   }
+
+  if (layout === 'pad') {
+    return {
+      ...desktopPad,
+      excludeItems: [...PAD_DEFAULT_EXCLUDE_ITEMS]
+    }
+  }
+
+  return desktopPad
 }
 
 /**
@@ -65,11 +80,14 @@ export function acuiBuiltinToolbarOptionsForLayout(
  * Phone chrome (placement, labels, full width, collapsible) comes from built-in
  * defaults and optional `layouts.phone.toolbar`. Append-item customizations are
  * desktop/pad-only so phone keeps the built-in phone item set.
+ * Button-frame chrome is inherited so a top-level `showButtonBorder` applies on
+ * the phone bottom bar as well.
  */
 const PHONE_INHERITED_TOP_LEVEL_KEYS: (keyof AcUiToolbarOptions)[] = [
   'mountTarget',
   'enabled',
-  'inCanvasParent'
+  'inCanvasParent',
+  'showButtonBorder'
 ]
 
 /**

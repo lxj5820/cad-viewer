@@ -761,6 +761,16 @@ export default {
   mtext: {
     point: '指定多行文本插入点'
   },
+  bmpout: {
+    boundsFirstCorner: '指定边界的第一个角点',
+    boundsSecondCorner: '指定对角点',
+    longSidePrompt: '输入长边像素大小'
+  },
+  jpgout: {
+    boundsFirstCorner: '指定边界的第一个角点',
+    boundsSecondCorner: '指定对角点',
+    longSidePrompt: '输入长边像素大小'
+  },
   pngout: {
     boundsFirstCorner: '指定边界的第一个角点',
     boundsSecondCorner: '指定对角点',
@@ -1204,11 +1214,22 @@ export default {
     }
   },
   chtml: {
+    exportFormat: '导出格式 [单文件(S)/多文件包(M)]',
     exportInvisibleLayers: '是否导出不可见图层',
     exportLayouts: '是否导出布局',
     initialView: '打开 HTML 时的初始视图',
     viewerMode: '离线查看器模式',
     keywords: {
+      single: {
+        display: '单文件(S)',
+        local: '单文件',
+        global: 'Single'
+      },
+      multi: {
+        display: '多文件包(M)',
+        local: '多文件包',
+        global: 'Multi'
+      },
       yes: {
         display: '是(Y)',
         local: '是',

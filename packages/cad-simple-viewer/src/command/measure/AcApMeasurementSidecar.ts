@@ -134,7 +134,20 @@ export function serializeMeasurementStyle(
     lineWeight: MEASUREMENT_LINE_WEIGHT,
     fontSize: style.fontSize
   }
-  if (view) {
+  if (
+    style.textHeightMode === 'custom' &&
+    style.textHeightWcs != null &&
+    style.textHeightWcs > 0
+  ) {
+    // Custom: keep the authored world height — never re-derive from fontSize.
+    result.textHeightWcs = style.textHeightWcs
+  } else if (style.textHeightMode === 'adaptive' && view) {
+    // Fit-to-screen: bake the current screen font size into WCS at commit.
+    result.textHeightWcs = acapScreenPxToWcs(style.fontSize, view)
+  } else if (style.textHeightWcs != null && style.textHeightWcs > 0) {
+    // Legacy / import: prefer an existing world height over reconversion.
+    result.textHeightWcs = style.textHeightWcs
+  } else if (view) {
     result.textHeightWcs = acapScreenPxToWcs(style.fontSize, view)
   }
   return result
@@ -147,7 +160,8 @@ export function deserializeMeasurementStyle(
   return {
     color: acapCssToMeasurementColor(style.color),
     lineWeight: MEASUREMENT_LINE_WEIGHT,
-    fontSize: style.fontSize > 0 ? style.fontSize : MEASUREMENT_FONT_SIZE
+    fontSize: style.fontSize > 0 ? style.fontSize : MEASUREMENT_FONT_SIZE,
+    textHeightWcs: style.textHeightWcs
   }
 }
 

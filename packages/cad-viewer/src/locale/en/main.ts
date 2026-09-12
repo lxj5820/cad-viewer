@@ -530,8 +530,11 @@ export default {
       description: 'Set the color for new markup drawings'
     },
     markupFontSize: {
-      text: 'Font size',
-      description: 'Set the font size for text and callout markups'
+      text: 'Text height',
+      description:
+        'Open text height settings for markups (Fit to screen or world height)',
+      fit: 'Fit',
+      wcs: 'WCS'
     },
     measurementColor: {
       text: 'Color',
@@ -539,9 +542,11 @@ export default {
         'Set the color for the selected measurement, or for measurements you add next'
     },
     measurementFontSize: {
-      text: 'Font size',
+      text: 'Text height',
       description:
-        'Set the font size for the selected measurement, or for measurements you add next'
+        'Open text height settings for the selected measurement, or for measurements you add next',
+      fit: 'Fit',
+      wcs: 'WCS'
     },
     showMarkup: {
       text: 'Show',
@@ -569,7 +574,9 @@ export default {
     },
     switchBg: {
       text: 'Switch',
-      description: 'Switches the drawing background between white and black'
+      description: 'Switches the drawing background between white and black',
+      disabledInReadingMode:
+        'Unavailable while reading mode is on (white canvas is fixed)'
     },
     readingMode: {
       text: 'Reading',
@@ -1004,15 +1011,32 @@ export default {
       'Failed to open "{fileName}". The operation timed out while parsing the drawing.',
     failedToOpenFileFontLoadFailed:
       'Failed to open "{fileName}". Required fonts could not be loaded.',
+    failedToOpenFileLicenseExpired:
+      'Failed to open "{fileName}". The DWG converter license has expired.',
+    failedToOpenFileLicenseInvalid:
+      'Failed to open "{fileName}". The DWG converter license is missing or invalid.',
     fetchingDrawingFile: 'Fetching file ...',
     unknownEntities:
-      'This drawing contains {count} unknown or unsupported entities! Those entities will not be shown.'
+      'This drawing contains {count} unknown or unsupported entities! Those entities will not be shown.',
+    tianzhengEntities:
+      'This drawing contains TArch / Tianzheng (or similar third-party) custom entities (about {count}). They cannot be fully parsed in this environment, so some content may not display.',
+    emptyProxyEntities:
+      'This drawing contains {count} custom entities without proxy graphics! Those entities will not be shown.'
   },
   notification: {
     center: {
       title: 'Notifications',
       clearAll: 'Clear All',
       noNotifications: 'No notifications'
+    },
+    group: {
+      fontMissed: 'Missing Fonts',
+      fontMissedSummary:
+        '{count} font-related messages. Click to expand details.',
+      unsupportedEntities: 'Unsupported Entities',
+      unsupportedEntitiesSummary:
+        '{count} parsing-related messages. Click to expand details.',
+      genericSummary: '{count} messages. Click to expand details.'
     },
     time: {
       justNow: 'Just now',
@@ -1025,9 +1049,15 @@ export default {
       failedToOpenFileWorkerOom: 'Drawing Too Large',
       failedToOpenFileWorkerTimeout: 'Open Timed Out',
       failedToOpenFileFontLoadFailed: 'Font Load Failed',
+      failedToOpenFileLicenseExpired: 'License Expired',
+      failedToOpenFileLicenseInvalid: 'Invalid License',
       fontNotFound: 'Font Not Found',
       fontNotLoaded: 'Font Not Loaded',
-      parsingWarning: 'Issues on Parsing Drawing'
+      parsingWarning: 'Issues on Parsing Drawing',
+      systemMessage: 'System Message',
+      systemWarning: 'System Warning',
+      systemError: 'System Error',
+      systemInfo: 'System Info'
     }
   }
 }

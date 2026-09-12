@@ -1,4 +1,5 @@
 import {
+  acapBindToolbarDocState,
   AcApContext,
   AcApDocManager,
   AcApI18n,
@@ -9,7 +10,8 @@ import {
   acedGetUiLayout,
   acedSubscribeUiLayout,
   type AcEdUiLayoutKind,
-  type AcEdUiTheme
+  type AcEdUiTheme,
+  AcUiToolbar
 } from '@mlightcad/cad-simple-viewer'
 
 import packageJson from '../package.json'
@@ -45,7 +47,6 @@ import { AcUiDockPanel, type AcUiDockPanelTab } from './ui/AcUiDockPanel'
 import { AcUiLayerListView } from './ui/AcUiLayerListView'
 import { AcUiMeasurementPaletteView } from './ui/AcUiMeasurementPaletteView'
 import { AcUiReviewPaletteView } from './ui/AcUiReviewPaletteView'
-import { AcUiToolbar } from './ui/AcUiToolbar'
 import { acuiRemoveUiStylesIfUnused } from './ui/styles'
 
 const LAYERS_TAB_ID = 'layers'
@@ -89,6 +90,8 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
   private readonly layerUiControllerHolder = new AcUiLayerUiControllerHolder()
   /** Configurable toolbar instance. */
   private toolbar?: AcUiToolbar
+  /** Cleanup for {@link acapBindToolbarDocState}. */
+  private toolbarDocUnbind?: () => void
   /** Scoped i18n helper for plugin strings. */
   private i18n?: AcUiI18n
   /** Syncs UI theme with host attribute and database sysvar. */
@@ -148,6 +151,8 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
   private toolbarShowChildrenIndicator = true
   /** Whether the toolbar container border is shown. */
   private toolbarShowBorder = true
+  /** Whether each toolbar button draws a permanent outer border. */
+  private toolbarShowButtonBorder = false
   /** Whether toolbar separator dividers are shown. */
   private toolbarShowSeparators = true
   /** Toolbar sizing along the layout axis (`auto` or `stretch`). */
@@ -570,6 +575,8 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
       if (this.toolbar.isRootConnected()) {
         return
       }
+      this.toolbarDocUnbind?.()
+      this.toolbarDocUnbind = undefined
       this.toolbar.destroy()
       this.toolbar = undefined
       this.toolbarMountEl = undefined
@@ -599,6 +606,7 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
         size: this.toolbarSize,
         overflow: this.toolbarOverflow,
         showBorder: this.toolbarShowBorder,
+        showButtonBorder: this.toolbarShowButtonBorder,
         showSeparators: this.toolbarShowSeparators,
         inCanvasParent: this.toolbarInCanvasParent,
         subToolbar: this.toolbarSubToolbar,
@@ -610,6 +618,7 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
           AcApDocManager.instance.sendStringToExecute(command)
         }
       })
+      this.toolbarDocUnbind = acapBindToolbarDocState(this.toolbar)
     } catch (error) {
       console.error('[SimpleUiPlugin] Failed to create viewer toolbar:', error)
       return
@@ -704,6 +713,7 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
     this.toolbarShowChildrenIndicator =
       toolbarOpts.showChildrenIndicator ?? true
     this.toolbarShowBorder = toolbarOpts.showBorder ?? true
+    this.toolbarShowButtonBorder = toolbarOpts.showButtonBorder ?? false
     this.toolbarShowSeparators = toolbarOpts.showSeparators ?? true
     this.toolbarSize = toolbarOpts.size ?? 'auto'
     this.toolbarOverflow = toolbarOpts.overflow ?? 'menu'
@@ -734,6 +744,7 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
       size: this.toolbarSize,
       overflow: this.toolbarOverflow,
       showBorder: this.toolbarShowBorder,
+      showButtonBorder: this.toolbarShowButtonBorder,
       showSeparators: this.toolbarShowSeparators,
       subToolbar: this.toolbarSubToolbar,
       inCanvasParent: this.toolbarInCanvasParent,
@@ -1316,6 +1327,8 @@ export class AcApSimpleUiPlugin implements AcApPlugin {
     this.teardownLayerUi()
     this.teardownReviewUi()
     this.teardownMeasurementUi()
+    this.toolbarDocUnbind?.()
+    this.toolbarDocUnbind = undefined
     this.toolbar?.destroy()
     this.dockPanel?.destroy()
 

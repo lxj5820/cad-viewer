@@ -65,6 +65,18 @@ export default {
       curveHigh: 'Quality',
       curveHighHint: 'Smoother curves, more memory',
 
+      paperSpaceBackground: 'Paper space background',
+      paperSpaceWhite: 'White',
+      paperSpaceWhiteHint: 'Desktop CAD / print preview',
+      paperSpaceBlack: 'Black',
+      paperSpaceBlackHint: 'Web viewer preference',
+
+      export: 'Export',
+      exportEnable: 'Enable',
+      exportEnableHint: 'Allow DXF/HTML/PDF/SVG/PNG export',
+      exportDisable: 'Disable',
+      exportDisableHint: 'Hide export commands and File menu items',
+
       invalidFileType:
         'Invalid file type. Please upload DWG or DXF files.'
     }

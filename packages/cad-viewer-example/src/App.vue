@@ -19,6 +19,8 @@
         :progressive-rendering="progressiveRendering"
         :open-view-mode="openViewMode"
         :circle-sides="circleSides"
+        :paper-space-background="paperSpaceBackground"
+        :disable-export="disableExport"
         @create="onViewerCreate"
         :base-url="BASE_URL"
       />
@@ -32,10 +34,11 @@ import {
   AcApOpenViewMode,
   AcApSettingManager,
   AcEdCommandStack,
-  AcEdOpenMode
+  AcEdOpenMode,
+  layoutBackgroundColorFromRgb
 } from '@mlightcad/cad-simple-viewer'
 import { MlCadViewer } from '@mlightcad/cad-viewer'
-import { ACDB_DRAW_CIRCLE_SIDES_DRAFT, log } from '@mlightcad/data-model'
+import { ACDB_DRAW_CIRCLE_SIDES_DRAFT, ACGI_PAPER_SPACE_BACKGROUND, log } from '@mlightcad/data-model'
 import { computed, nextTick, ref } from 'vue'
 
 import { AcApQuitCmd } from './commands'
@@ -89,11 +92,13 @@ const showViewer = computed(
 )
 
 const selectedMode = ref<AcEdOpenMode>(AcEdOpenMode.Write)
-const useMainThreadDraw = ref(false)
+const useMainThreadDraw = ref(true)
 const drawNoPlotLayers = ref(false)
 const progressiveRendering = ref(false)
 const openViewMode = ref<AcApOpenViewMode | undefined>(undefined)
 const circleSides = ref(ACDB_DRAW_CIRCLE_SIDES_DRAFT)
+const paperSpaceBackground = ref(ACGI_PAPER_SPACE_BACKGROUND)
+const disableExport = ref(false)
 
 const createNewDrawing = async () => {
   const success = await AcApDocManager.instance.newDocument({
@@ -101,6 +106,9 @@ const createNewDrawing = async () => {
     drawNoPlotLayers: drawNoPlotLayers.value,
     progressiveRendering: progressiveRendering.value,
     circleSides: circleSides.value,
+    sysVars: {
+      paperbkcolor: layoutBackgroundColorFromRgb(paperSpaceBackground.value)
+    },
     ...(openViewMode.value != null ? { openViewMode: openViewMode.value } : {})
   })
   if (!success) {
@@ -122,7 +130,9 @@ const applyOpenOptions = (
   showNoPlotLayers: boolean,
   enableProgressiveRendering: boolean,
   viewMode: AcApOpenViewMode | undefined,
-  sides: number
+  sides: number,
+  paperBg: number,
+  exportDisabled: boolean
 ) => {
   selectedMode.value = mode
   useMainThreadDraw.value = mainThreadDraw
@@ -130,6 +140,8 @@ const applyOpenOptions = (
   progressiveRendering.value = enableProgressiveRendering
   openViewMode.value = viewMode
   circleSides.value = sides
+  paperSpaceBackground.value = paperBg
+  disableExport.value = exportDisabled
 }
 
 // Handle file selection from upload component
@@ -140,7 +152,9 @@ const handleFileSelect = (
   showNoPlotLayers: boolean,
   enableProgressiveRendering: boolean,
   viewMode: AcApOpenViewMode | undefined,
-  sides: number
+  sides: number,
+  paperBg: number,
+  exportDisabled: boolean
 ) => {
   store.isNewDrawing = false
   store.selectedFile = file
@@ -150,7 +164,9 @@ const handleFileSelect = (
     showNoPlotLayers,
     enableProgressiveRendering,
     viewMode,
-    sides
+    sides,
+    paperBg,
+    exportDisabled
   )
 }
 
@@ -160,7 +176,9 @@ const handleNewDrawing = (
   showNoPlotLayers: boolean,
   enableProgressiveRendering: boolean,
   viewMode: AcApOpenViewMode | undefined,
-  sides: number
+  sides: number,
+  paperBg: number,
+  exportDisabled: boolean
 ) => {
   store.selectedFile = null
   store.isNewDrawing = true
@@ -170,7 +188,9 @@ const handleNewDrawing = (
     showNoPlotLayers,
     enableProgressiveRendering,
     viewMode,
-    sides
+    sides,
+    paperBg,
+    exportDisabled
   )
 }
 </script>

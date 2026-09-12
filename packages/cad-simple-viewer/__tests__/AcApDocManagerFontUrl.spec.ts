@@ -4,6 +4,8 @@ class MockAcApFontLoader {
   private _baseUrl = ''
   load = jest.fn(() => Promise.resolve())
   avaiableFonts = []
+  fontLoader = {}
+  getAvaiableFonts = jest.fn(async () => [])
 
   constructor() {
     mockFontLoaderInstances.push(this)
@@ -192,7 +194,9 @@ jest.mock('../src/command', () => {
     'AcApClearMarkupsCmd',
     'AcApClearMeasurementsCmd',
     'AcApCloseCmd',
+    'AcApConvertToBmpCmd',
     'AcApConvertToDxfCmd',
+    'AcApConvertToJpgCmd',
     'AcApConvertToPngCmd',
     'AcApEntityPreviewCmd',
     'AcApCopyCmd',
@@ -285,6 +289,7 @@ jest.mock('@mlightcad/data-model', () => ({
   AcCmColor: jest.fn(),
   AcCmEventManager: jest.fn().mockImplementation(() => ({
     addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
     dispatch: jest.fn()
   })),
   AcDbDatabaseConverterManager: {
@@ -311,10 +316,12 @@ jest.mock('@mlightcad/data-model', () => ({
 }))
 
 import { AcApDocManager } from '../src/app/AcApDocManager'
+import { acapDisposeNotificationService } from '../src/app/notification'
 
 describe('AcApDocManager font URL configuration', () => {
   beforeEach(() => {
     ;(AcApDocManager as unknown as { _instance: unknown })._instance = undefined
+    acapDisposeNotificationService()
     mockFontLoaderInstances.length = 0
     mockInitialize.mockClear()
     mockSetRenderMode.mockClear()
@@ -356,9 +363,52 @@ describe('AcApDocManager font URL configuration', () => {
   })
 })
 
+describe('AcApDocManager disableExport', () => {
+  beforeEach(() => {
+    ;(AcApDocManager as unknown as { _instance: unknown })._instance = undefined
+    acapDisposeNotificationService()
+  })
+
+  it('defaults to enabling export commands', () => {
+    const manager = AcApDocManager.createInstance({})
+    expect(manager?.disableExport).toBe(false)
+
+    const addCommand = (
+      manager!.commandManager as unknown as { addCommand: jest.Mock }
+    ).addCommand
+    const registered = addCommand.mock.calls.map(
+      (call: unknown[]) => call[1] as string
+    )
+    expect(registered).toContain('cdxf')
+    expect(registered).toContain('pngout')
+    expect(registered).toContain('jpgout')
+    expect(registered).toContain('bmpout')
+  })
+
+  it('skips built-in export commands when disableExport is true', () => {
+    const manager = AcApDocManager.createInstance({
+      disableExport: true
+    })
+    expect(manager?.disableExport).toBe(true)
+
+    const addCommand = (
+      manager!.commandManager as unknown as { addCommand: jest.Mock }
+    ).addCommand
+    const registered = addCommand.mock.calls.map(
+      (call: unknown[]) => call[1] as string
+    )
+    expect(registered).not.toContain('cdxf')
+    expect(registered).not.toContain('pngout')
+    expect(registered).not.toContain('jpgout')
+    expect(registered).not.toContain('bmpout')
+    expect(registered).toContain('open')
+  })
+})
+
 describe('AcApDocManager document sessions', () => {
   beforeEach(() => {
     ;(AcApDocManager as unknown as { _instance: unknown })._instance = undefined
+    acapDisposeNotificationService()
   })
 
   it('starts with one document session', () => {

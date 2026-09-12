@@ -11,8 +11,11 @@ import type { AcExOsnapCatalog } from './AcExOsnapPrimitiveTypes'
  * is a backward-compatible flag on v3 batches: hatch fills use `-1` so they
  * sit below linework on the shared Z plane, matching the live viewer's
  * `AcGiSubEntityTraits.drawOrder` / `Object3D.renderOrder` tiers.
+ *
+ * v4 adds optional textured mesh payloads ({@link AcExMeshBatch.uvs} +
+ * {@link AcExMeshBatch.texture}) for raster images and OLE frames.
  */
-export const ACEX_SNAPSHOT_VERSION = 3 as const
+export const ACEX_SNAPSHOT_VERSION = 4 as const
 
 /**
  * Literal type of the supported snapshot schema version.
@@ -162,6 +165,13 @@ export interface AcExLineBatch {
    * Omitted when `0` (the default linework tier).
    */
   renderOrder?: number
+  /**
+   * When `true`, hybrid OSNAP must not index this batch's vertices.
+   * Set for text/point glyph stroke batches (`bboxIntersectionCheck` drawables)
+   * whose outlines flood snap without matching AutoCAD text snap behavior.
+   * Insertion/node snap for TEXT/MTEXT still comes from analytic ACEO points.
+   */
+  excludeFromOsnap?: boolean
 }
 
 /**
@@ -181,11 +191,21 @@ export interface AcExGradientFill {
 }
 
 /**
+ * Embedded raster texture for an image / OLE mesh batch (PNG bytes).
+ */
+export interface AcExMeshTexture {
+  /** MIME type, typically `image/png`. */
+  mimeType: string
+  /** Encoded image bytes. */
+  bytes: Uint8Array
+}
+
+/**
  * One packed mesh or point batch (filled regions, MText quads, point glyphs, etc.)
  * rendered in the offline viewer.
  */
 export interface AcExMeshBatch {
-  /** Layer name used for grouping and visibility in the viewer. */
+  /** Layer name used for grouping and visibility in the offline viewer. */
   layer: string
   /** Fill color as 24-bit RGB hex. */
   color: number
@@ -215,6 +235,15 @@ export interface AcExMeshBatch {
    * Required when {@link AcExMeshBatch.gradientFill} is set.
    */
   gradientPositions?: Float32Array
+  /**
+   * Per-vertex UVs `[u0, v0, u1, v1, …]` paired with {@link AcExMeshBatch.texture}.
+   * Vertex count must match {@link AcExMeshBatch.positions}.
+   */
+  uvs?: Float32Array
+  /**
+   * Raster texture for IMAGE / OLE frames. Requires {@link AcExMeshBatch.uvs}.
+   */
+  texture?: AcExMeshTexture
   /** Material side when a custom fill shader is used (`0` = front, `1` = back). */
   side?: number
   /**
@@ -262,16 +291,20 @@ export interface AcExLayoutSnapshot {
   /**
    * Analytic geometry for object snap (OSNAP) in the offline viewer.
    *
-   * Populated at export time by {@link buildOsnapCatalog} from the drawing database
-   * (not from tessellated THREE batches). Includes lines, arcs, circles, ellipses,
-   * splines, and points in WCS, including entities inside block references.
+   * Populated at export time by {@link buildOsnapCatalog} from the drawing database.
+   * Contains **curve/point/path** primitives (circle, arc, ellipse, spline, point,
+   * polyline bulge arcs, fill/frame `path` records, and wide LWPOLYLINE
+   * centerline `path` records). Straight drawing-line
+   * edges are omitted because they duplicate {@link AcExLineBatch} display
+   * geometry; the offline viewer rebuilds line snap from those batches
+   * (self-contained HTML and multi-file packages). Hatch / TRACE / SOLID / IMAGE
+   * clip / OLE boundaries are stored as compact `path` primitives, not exploded
+   * ACEO lines.
    *
-   * Coordinates are stored as IEEE-754 `number` (double) in JSON for measurement-grade
-   * precision; they are not converted to {@link Float32Array}.
+   * Coordinates are IEEE-754 `number` (double) for measurement-grade precision.
    *
-   * When {@link AcExOsnapCatalog.primitives} is non-empty, {@link AcExOsnapIndex}
-   * uses these definitions exclusively and does **not** snap to discretized
-   * {@link AcExLineBatch} / {@link AcExMeshBatch} vertices.
+   * {@link AcExOsnapIndex} indexes ACEO curves/paths together with tessellated line
+   * segments extracted from resident {@link AcExLineBatch} / mesh edges.
    */
   osnap?: AcExOsnapCatalog
   /**
@@ -356,6 +389,11 @@ export interface AcExSnapshot {
      * snapshots produced before this option existed.
      */
     viewerMode?: AcExViewerMode
+    /**
+     * Absolute root URL for localized user-guide pages. When omitted, the
+     * offline viewer uses the default mlightcad docs site.
+     */
+    docsBaseUrl?: string
     /**
      * When `false`, paper-space layouts were not exported. The offline viewer
      * hides the layout switcher and may release CPU geometry after the first

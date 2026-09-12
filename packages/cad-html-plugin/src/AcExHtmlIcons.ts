@@ -42,6 +42,7 @@ import {
   ICON_POLAR_TRACKING,
   ICON_SELECT,
   ICON_SETTINGS,
+  ICON_SIMULATED_MOUSE,
   ICON_SWITCH_BG,
   ICON_THEME_DARK,
   ICON_THEME_LIGHT,
@@ -55,7 +56,7 @@ import {
  * Inline SVG markup keyed by toolbar / layer UI usage.
  * Each value is a complete `<svg>…</svg>` string using `currentColor`.
  */
-export const acExHtmlIcons = {
+export const AcExHtmlIcons = {
   /** Select tool toolbar icon. */
   select: ICON_SELECT,
   /** Pan tool toolbar icon. */
@@ -140,6 +141,8 @@ export const acExHtmlIcons = {
   clearMarkups: ICON_CLEAR_MARKUPS,
   /** Phone settings parent toolbar icon. */
   settings: ICON_SETTINGS,
+  /** Simulated-mouse touch pick toggle. */
+  simulatedMouse: ICON_SIMULATED_MOUSE,
   /** Toggle drawing background between black and white. */
   switchBg: ICON_SWITCH_BG,
   /** Switch to light UI chrome. */
@@ -156,12 +159,12 @@ export const acExHtmlIcons = {
  * phone layouts can show a translated caption under the icon. Pad/desktop CSS
  * hides the label; `title` / `aria-label` remain the accessible name.
  *
- * @param icon - SVG markup from {@link acExHtmlIcons}.
+ * @param icon - SVG markup from {@link AcExHtmlIcons}.
  * @param title - Default `title`, `aria-label`, and label text before i18n.
  * @param attrs - Additional attributes (e.g. `data-action`, `data-i18n-key`).
  * @returns HTML string for one toolbar button.
  */
-export function acExToolbarButton(
+export function acexToolbarButton(
   icon: string,
   title: string,
   attrs: Record<string, string>
@@ -179,11 +182,11 @@ export function acExToolbarButton(
 /**
  * Builds a flyout menu item with icon + label (cad-simple-ui-plugin style).
  *
- * @param icon - SVG markup from {@link acExHtmlIcons}.
+ * @param icon - SVG markup from {@link AcExHtmlIcons}.
  * @param label - Default visible label before i18n overrides.
  * @param attrs - Additional attributes (e.g. `data-action`, `data-i18n-key`).
  */
-export function acExDropdownItem(
+export function acexDropdownItem(
   icon: string,
   label: string,
   attrs: Record<string, string>

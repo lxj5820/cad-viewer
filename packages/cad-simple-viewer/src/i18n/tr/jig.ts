@@ -771,6 +771,16 @@ export default {
   mtext: {
     point: 'Çok satırlı metin ekleme noktasını belirtin'
   },
+  bmpout: {
+    boundsFirstCorner: 'Sınırların ilk köşesini belirtin',
+    boundsSecondCorner: 'Karşı köşeyi belirtin',
+    longSidePrompt: 'Uzun kenar boyutunu piksel olarak girin'
+  },
+  jpgout: {
+    boundsFirstCorner: 'Sınırların ilk köşesini belirtin',
+    boundsSecondCorner: 'Karşı köşeyi belirtin',
+    longSidePrompt: 'Uzun kenar boyutunu piksel olarak girin'
+  },
   pngout: {
     boundsFirstCorner: 'Sınırların ilk köşesini belirtin',
     boundsSecondCorner: 'Karşı köşeyi belirtin',
@@ -1216,11 +1226,22 @@ export default {
     }
   },
   chtml: {
+    exportFormat: 'Dışa aktarma biçimi [Tek dosya(S)/Çok dosyalı paket(M)]',
     exportInvisibleLayers: 'Görünmez katmanları dışa aktar',
     exportLayouts: 'Yerleşimleri dışa aktar',
     initialView: 'HTML açılırken başlangıç görünümü',
     viewerMode: 'Çevrimdışı görüntüleyici modu',
     keywords: {
+      single: {
+        display: 'Tek dosya(S)',
+        local: 'Tek dosya',
+        global: 'Single'
+      },
+      multi: {
+        display: 'Çok dosyalı paket(M)',
+        local: 'Çok dosyalı paket',
+        global: 'Multi'
+      },
       yes: {
         display: 'Evet(E)',
         local: 'Evet',

@@ -14,7 +14,7 @@ export const ML_UI_MOBILE_MEDIA_QUERY = `(max-width: ${ML_UI_MOBILE_MAX_WIDTH}px
  * Width (px) of the bottom command/session panel on pad layouts.
  * Phone uses full viewport width (`left: 0; right: 0`).
  *
- * Keep in sync with `.ml-mobile-cmd-panel` and `#mlcad-command-session`.
+ * Keep in sync with `.ml-mobile-cmd-panel` in {@link AcUiMobileSessionPanel}.
  */
 export const ML_UI_SESSION_PANEL_WIDTH = 440
 
@@ -49,6 +49,25 @@ export const ML_UI_Z_CANVAS_HTML_OVERLAY = 2
  * Above mobile command chrome (`40`); below modal dialogs (`10050`).
  */
 export const ML_UI_Z_DRAW_STYLE_TOOLBAR = 45
+
+/**
+ * Z-index for the floating shortcut toolbar (undo/redo/erase + selection extensions).
+ *
+ * Above draw-style session chrome; below modal dialogs.
+ */
+export const ML_UI_Z_SHORTCUT_TOOLBAR = 46
+
+/**
+ * Z-index for the mobile entity-pick cancel button (below message / status bar).
+ */
+export const ML_UI_Z_ENTITY_PICK_CANCEL = 47
+
+/**
+ * Z-index for the built-in notification bell / panel.
+ *
+ * Above shortcut / entity-pick chrome; below modal dialogs (~10050).
+ */
+export const ML_UI_Z_NOTIFICATION = 48
 
 /** Whether the current viewport matches the narrow mobile UI layout. */
 export function acedIsMobileUiLayout(): boolean {

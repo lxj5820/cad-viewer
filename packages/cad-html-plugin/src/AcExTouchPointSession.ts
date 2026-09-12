@@ -1,14 +1,111 @@
 /**
- * Long-press delay before the snap loupe appears, in milliseconds.
+ * Long-press / short-tap timing and state for offline HTML touch picking.
+ *
+ * Precise-capture delay is shared with cad-simple-viewer via
+ * {@link ACED_TOUCH_POINT_LONG_PRESS_MS}.
  */
-export const ACEX_TOUCH_POINT_LONG_PRESS_MS = 1000
+
+import {
+  ACED_TOUCH_POINT_LONG_PRESS_MS,
+  ACED_TOUCH_POINT_MOVE_CANCEL_PX
+} from './AcExHtmlSimpleViewerUi'
+
+export {
+  ACED_TOUCH_POINT_LONG_PRESS_MS,
+  ACED_TOUCH_POINT_MOVE_CANCEL_PX
+}
 
 /**
- * Pointer movement in CSS pixels that cancels a pending long-press so the
- * gesture can be treated as a pan. Offline HTML drawing tools already disable
- * one-finger pan, so callers typically pass `cancelOnMove: false`.
+ * @deprecated Prefer {@link ACED_TOUCH_POINT_LONG_PRESS_MS}.
  */
-export const ACEX_TOUCH_POINT_MOVE_CANCEL_PX = 10
+export const ACEX_TOUCH_POINT_LONG_PRESS_MS = ACED_TOUCH_POINT_LONG_PRESS_MS
+
+/**
+ * @deprecated Prefer {@link ACED_TOUCH_POINT_MOVE_CANCEL_PX}.
+ */
+export const ACEX_TOUCH_POINT_MOVE_CANCEL_PX = ACED_TOUCH_POINT_MOVE_CANCEL_PX
+
+/**
+ * Ignore compatibility mouse events this long after a touch pick ends.
+ *
+ * Chrome fires a `pointerType: 'mouse'` `pointerdown` then `click` after
+ * touch `pointerup`. Those coordinates are near the finger, so a two-point
+ * command (measure distance) would commit both points from one long-press
+ * and immediately clear the confirmed-point plus mark.
+ */
+export const ACEX_TOUCH_MOUSE_GUARD_MS = 1000
+
+let followingClickSink: ((event: Event) => void) | null = null
+let followingClickSinkTimer: ReturnType<typeof setTimeout> | null = null
+let ignoreCompatMouseUntil = 0
+
+/**
+ * Stops the next `click` in the capture phase and ignores compatibility
+ * mouse events for {@link ACEX_TOUCH_MOUSE_GUARD_MS}.
+ *
+ * Touch picking commits on `pointerup`. The browser then synthesizes a
+ * mouse `pointerdown` + `click` near the finger. A drawing tool would
+ * treat that as a real mouse pick unless this guard stays armed.
+ */
+export function acexSinkFollowingClick() {
+  acexArmTouchMouseGuard()
+  if (followingClickSink) return
+  const sink = (event: Event) => {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    acexClearFollowingClickSink()
+  }
+  followingClickSink = sink
+  window.addEventListener('click', sink, true)
+  followingClickSinkTimer = setTimeout(() => {
+    acexClearFollowingClickSink()
+  }, ACEX_TOUCH_MOUSE_GUARD_MS)
+}
+
+/**
+ * Removes {@link acexSinkFollowingClick} if it is armed.
+ */
+export function acexClearFollowingClickSink() {
+  if (followingClickSinkTimer != null) {
+    clearTimeout(followingClickSinkTimer)
+    followingClickSinkTimer = null
+  }
+  if (!followingClickSink) return
+  window.removeEventListener('click', followingClickSink, true)
+  followingClickSink = null
+}
+
+/**
+ * Arms the compatibility-mouse ignore window after a touch pick.
+ *
+ * @param now - Current time in milliseconds; defaults to `performance.now()`.
+ */
+export function acexArmTouchMouseGuard(now: number = performance.now()) {
+  ignoreCompatMouseUntil = Math.max(
+    ignoreCompatMouseUntil,
+    now + ACEX_TOUCH_MOUSE_GUARD_MS
+  )
+}
+
+/**
+ * Whether mouse `pointerdown` / `click` should be ignored as leftover from
+ * a touch pick.
+ *
+ * @param now - Current time in milliseconds; defaults to `performance.now()`.
+ */
+export function acexShouldIgnoreCompatMouse(
+  now: number = performance.now()
+): boolean {
+  return followingClickSink != null || now < ignoreCompatMouseUntil
+}
+
+/**
+ * Clears the click sink and mouse guard. Used by tests.
+ */
+export function acexResetTouchMouseGuard() {
+  acexClearFollowingClickSink()
+  ignoreCompatMouseUntil = 0
+}
 
 /**
  * Phases of a one-finger point-pick gesture.
@@ -25,8 +122,8 @@ export type AcExTouchPointPhase = 'idle' | 'pending' | 'loupe' | 'panning'
  * exported HTML viewer.
  *
  * - Short tap (`pending` → end): commit at the last sample.
- * - Hold until {@link ACEX_TOUCH_POINT_LONG_PRESS_MS}: enter `loupe`.
- * - Move beyond {@link ACEX_TOUCH_POINT_MOVE_CANCEL_PX} before the timer
+ * - Hold until {@link ACED_TOUCH_POINT_LONG_PRESS_MS}: enter `loupe`.
+ * - Move beyond {@link ACED_TOUCH_POINT_MOVE_CANCEL_PX} before the timer
  *   (when `cancelOnMove` is true): enter `panning` and do not commit.
  */
 export class AcExTouchPointSession {
@@ -110,14 +207,14 @@ export class AcExTouchPointSession {
    * @param y - Sample Y in client CSS pixels.
    * @param onLongPress - Called once when the session enters the `loupe` phase.
    * @param longPressMs - Delay before the loupe appears; defaults to
-   *   {@link ACEX_TOUCH_POINT_LONG_PRESS_MS}.
+   *   {@link ACED_TOUCH_POINT_LONG_PRESS_MS}.
    */
   start(
     pointerId: number,
     x: number,
     y: number,
     onLongPress: () => void,
-    longPressMs: number = ACEX_TOUCH_POINT_LONG_PRESS_MS
+    longPressMs: number = ACED_TOUCH_POINT_LONG_PRESS_MS
   ) {
     this.reset()
     this._phase = 'pending'
@@ -143,14 +240,14 @@ export class AcExTouchPointSession {
    * @param cancelOnMove - When true, movement past the cancel threshold
    *   before the loupe appears aborts the pick.
    * @param cancelPx - Movement threshold in CSS pixels; defaults to
-   *   {@link ACEX_TOUCH_POINT_MOVE_CANCEL_PX}.
+   *   {@link ACED_TOUCH_POINT_MOVE_CANCEL_PX}.
    * @returns `'panning'` when the pick was aborted, otherwise `'continue'`.
    */
   move(
     x: number,
     y: number,
     cancelOnMove: boolean,
-    cancelPx: number = ACEX_TOUCH_POINT_MOVE_CANCEL_PX
+    cancelPx: number = ACED_TOUCH_POINT_MOVE_CANCEL_PX
   ): 'continue' | 'panning' {
     if (this._phase === 'idle' || this._phase === 'panning') return 'continue'
     this._x = x

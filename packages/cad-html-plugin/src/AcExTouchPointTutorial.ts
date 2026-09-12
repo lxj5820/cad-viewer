@@ -1,12 +1,12 @@
 import type { AcExHtmlI18n } from './AcExHtmlI18n'
 import {
+  ACED_TOUCH_POINT_LONG_PRESS_MS,
   acedIsMobileOrPadUi,
   acuiLocalIsoDate,
   acuiShouldShowTouchPointTutorialFromPrefs,
   AcUiTouchPointTutorial,
   type AcUiTouchPointTutorialPrefs
 } from './AcExHtmlSimpleViewerUi'
-import { ACEX_TOUCH_POINT_LONG_PRESS_MS } from './AcExTouchPointSession'
 
 /** `localStorage` key for offline HTML tutorial preferences. */
 export const ACEX_TOUCH_POINT_TUTORIAL_PREFS_KEY =
@@ -44,7 +44,7 @@ function writePrefs(prefs: AcUiTouchPointTutorialPrefs): void {
  * Uses the same phone/pad gate as the live viewer ({@link acedIsMobileOrPadUi})
  * so wide tablets and touch devices are included, not only `max-width: 960px`.
  */
-export function acExShouldShowTouchPointTutorial(): boolean {
+export function acexShouldShowTouchPointTutorial(): boolean {
   return acuiShouldShowTouchPointTutorialFromPrefs(
     acedIsMobileOrPadUi,
     readPrefs()
@@ -55,7 +55,7 @@ export function acExShouldShowTouchPointTutorial(): boolean {
  * Shows the shared touch-point tutorial when the session panel opens on
  * phone/pad layouts in exported HTML.
  */
-export function acExMaybeShowTouchPointTutorial(
+export function acexMaybeShowTouchPointTutorial(
   i18n: AcExHtmlI18n,
   host: HTMLElement = document.getElementById('mlcad-canvas-host') ??
     document.body
@@ -67,7 +67,7 @@ export function acExMaybeShowTouchPointTutorial(
   return AcUiTouchPointTutorial.maybeShow({
     host,
     theme,
-    longPressMs: ACEX_TOUCH_POINT_LONG_PRESS_MS,
+    longPressMs: ACED_TOUCH_POINT_LONG_PRESS_MS,
     labels: {
       title: i18n.t('touchPointTutorial.title'),
       description: i18n.t('touchPointTutorial.description'),
@@ -75,7 +75,7 @@ export function acExMaybeShowTouchPointTutorial(
       hideForever: i18n.t('touchPointTutorial.hideForever'),
       ok: i18n.t('touchPointTutorial.ok')
     },
-    shouldShow: acExShouldShowTouchPointTutorial,
+    shouldShow: acexShouldShowTouchPointTutorial,
     readPrefs,
     writePrefs
   })

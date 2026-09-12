@@ -772,6 +772,16 @@ export default {
   mtext: {
     point: 'Specify mtext insertion point'
   },
+  bmpout: {
+    boundsFirstCorner: 'Specify first corner of bounds',
+    boundsSecondCorner: 'Specify opposite corner',
+    longSidePrompt: 'Enter long side size in pixels'
+  },
+  jpgout: {
+    boundsFirstCorner: 'Specify first corner of bounds',
+    boundsSecondCorner: 'Specify opposite corner',
+    longSidePrompt: 'Enter long side size in pixels'
+  },
   pngout: {
     boundsFirstCorner: 'Specify first corner of bounds',
     boundsSecondCorner: 'Specify opposite corner',
@@ -1216,11 +1226,22 @@ export default {
     }
   },
   chtml: {
+    exportFormat: 'Export format [Single(S)/Multi-file package(M)]',
     exportInvisibleLayers: 'Export invisible layers',
     exportLayouts: 'Export layouts',
     initialView: 'Initial view when opening HTML',
     viewerMode: 'Offline viewer mode',
     keywords: {
+      single: {
+        display: 'Single(S)',
+        local: 'Single',
+        global: 'Single'
+      },
+      multi: {
+        display: 'Multi-file package(M)',
+        local: 'Multi-file package',
+        global: 'Multi'
+      },
       yes: {
         display: 'Yes(Y)',
         local: 'Yes',

@@ -770,6 +770,16 @@ export default {
   mtext: {
     point: 'Zadejte bod vložení víceřádkového textu'
   },
+  bmpout: {
+    boundsFirstCorner: 'Zadejte první roh rozsahu',
+    boundsSecondCorner: 'Zadejte protilehlý roh',
+    longSidePrompt: 'Zadejte velikost delší strany v pixelech'
+  },
+  jpgout: {
+    boundsFirstCorner: 'Zadejte první roh rozsahu',
+    boundsSecondCorner: 'Zadejte protilehlý roh',
+    longSidePrompt: 'Zadejte velikost delší strany v pixelech'
+  },
   pngout: {
     boundsFirstCorner: 'Zadejte první roh rozsahu',
     boundsSecondCorner: 'Zadejte protilehlý roh',
@@ -1213,11 +1223,22 @@ export default {
     }
   },
   chtml: {
+    exportFormat: 'Formát exportu [Jeden soubor(S)/Vícesouborový balíček(M)]',
     exportInvisibleLayers: 'Exportovat neviditelné hladiny',
     exportLayouts: 'Exportovat rozvržení',
     initialView: 'Počáteční pohled při otevření HTML',
     viewerMode: 'Režim offline prohlížeče',
     keywords: {
+      single: {
+        display: 'Jeden soubor(S)',
+        local: 'Jeden soubor',
+        global: 'Single'
+      },
+      multi: {
+        display: 'Vícesouborový balíček(M)',
+        local: 'Vícesouborový balíček',
+        global: 'Multi'
+      },
       yes: {
         display: 'Ano(Y)',
         local: 'Ano',

@@ -66,6 +66,8 @@ export type AcExHtmlMessageKey =
   | 'toolbar.layers'
   | 'toolbar.layout'
   | 'toolbar.settings'
+  | 'toolbar.simulatedMouseOn'
+  | 'toolbar.simulatedMouseOff'
   | 'toolbar.themeLight'
   | 'toolbar.themeDark'
   | 'toolbar.switchBg'
@@ -77,6 +79,7 @@ export type AcExHtmlMessageKey =
   | 'toolbar.localeAr'
   | 'toolbar.collapse'
   | 'toolbar.expand'
+  | 'toolbar.moreOverflow'
   | 'settings.ortho'
   | 'settings.polar'
   | 'settings.polarAngles'
@@ -90,6 +93,25 @@ export type AcExHtmlMessageKey =
   | 'drawStyle.rgb'
   | 'drawStyle.input'
   | 'drawStyle.inputPlaceholder'
+  | 'shortCutToolbar.more'
+  | 'shortCutToolbar.undo'
+  | 'shortCutToolbar.redo'
+  | 'shortCutToolbar.erase'
+  | 'shortCutToolbar.collapse'
+  | 'shortCutToolbar.expand'
+  | 'textHeight.title'
+  | 'textHeight.close'
+  | 'textHeight.ok'
+  | 'textHeight.cancel'
+  | 'textHeight.adaptive'
+  | 'textHeight.custom'
+  | 'textHeight.customPlaceholder'
+  | 'textHeight.fromScreen'
+  | 'textHeight.fromScreenHint'
+  | 'textHeight.screenPxPlaceholder'
+  | 'textHeight.screenUnit'
+  | 'textHeight.convert'
+  | 'entityPick.cancel'
   | 'layers.title'
   | 'layers.close'
   | 'layers.showAll'
@@ -134,6 +156,10 @@ export type AcExHtmlMessageKey =
   | 'session.y'
   | 'session.confirm'
   | 'session.cancel'
+  | 'session.help'
+  | 'session.back'
+  | 'session.collapse'
+  | 'session.expand'
   | 'session.undo'
   | 'touchPointTutorial.title'
   | 'touchPointTutorial.description'
@@ -177,12 +203,28 @@ export type AcExHtmlMessageKey =
   | 'status.coordinates'
   | 'status.angle'
   | 'status.arcLength'
+  | 'status.continuousTotal'
   | 'status.area'
   | 'status.lengthTotal'
   | 'status.areaTotal'
   | 'status.zoomLayer'
   | 'status.loadFailed'
   | 'status.noLayout'
+  | 'status.loadingChunks'
+  | 'status.loadingOsnap'
+  | 'status.buildingOsnap'
+  | 'package.title'
+  | 'package.hint'
+  | 'package.hintUrlOnly'
+  | 'package.chooseFolder'
+  | 'package.urlPlaceholder'
+  | 'package.openUrl'
+  | 'package.urlRequired'
+  | 'package.manifestNotFound'
+  | 'package.invalidManifest'
+  | 'package.folderMissingManifest'
+  | 'package.folderUnsupported'
+  | 'package.loadFailed'
   | 'access.title'
   | 'access.passwordPrompt'
   | 'access.passwordPlaceholder'
@@ -246,8 +288,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       layers: 'Layers',
       layout: 'Layout',
       settings: 'Settings',
-      themeLight: 'Dark theme',
-      themeDark: 'Light theme',
+      simulatedMouseOn: 'Mouse',
+      simulatedMouseOff: 'Loupe',
+      themeLight: 'Light',
+      themeDark: 'Dark',
       switchBg: 'Background',
       language: 'Language',
       localeEn: 'English',
@@ -256,7 +300,8 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       localeTr: 'Türkçe',
       localeAr: 'العربية',
       collapse: 'Collapse toolbar',
-      expand: 'Expand toolbar'
+      expand: 'Expand toolbar',
+      moreOverflow: 'More tools'
     },
     settings: {
       ortho: 'Toggle orthogonal mode',
@@ -274,6 +319,32 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       rgb: 'RGB: ',
       input: 'Color',
       inputPlaceholder: '1-255 or #RRGGBB'
+    },
+    shortCutToolbar: {
+      more: 'More',
+      undo: 'Undo',
+      redo: 'Redo',
+      erase: 'Delete',
+      collapse: 'Collapse toolbar',
+      expand: 'Expand toolbar'
+    },
+    textHeight: {
+      title: 'Text Height',
+      close: 'Close',
+      ok: 'OK',
+      cancel: 'Cancel',
+      adaptive: 'Fit to screen',
+      custom: 'Custom text height',
+      customPlaceholder: 'World height',
+      fromScreen: 'From screen size',
+      fromScreenHint:
+        'Enter how large the text should look on screen at the current zoom. It is converted to a fixed world-space height that stays constant when you zoom later.',
+      screenPxPlaceholder: 'Font size',
+      screenUnit: 'px',
+      convert: 'Convert'
+    },
+    entityPick: {
+      cancel: 'Cancel selection'
     },
     layers: {
       title: 'Layers',
@@ -328,6 +399,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       y: 'Y',
       confirm: 'Confirm',
       cancel: 'Cancel',
+      help: 'Help',
+      back: 'Back',
+      collapse: 'Collapse',
+      expand: 'Expand',
       undo: 'Undo'
     },
     touchPointTutorial: {
@@ -383,15 +458,38 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       markupImported: 'Imported {count} markup(s).',
       markupImportFailed: 'Failed to import markups: {error}',
       distance: 'Distance: {value}',
-      coordinates: 'X: {x}  Y: {y}',
+      coordinates: 'X: {x} | Y: {y}',
       angle: 'Angle: {value}',
-      arcLength: 'Arc length: {value}',
+      arcLength:
+        'Arc length: {length} | Radius: {radius} | Angle: {angle} | Chord: {chord}',
+      continuousTotal: 'Total length: {value}',
       area: 'Area: {value}',
       lengthTotal: 'Length total: {value}',
       areaTotal: 'Area total: {value}',
       zoomLayer: 'Zoom: {name}',
       loadFailed: 'Failed to load drawing: {error}',
-      noLayout: 'No layout data in snapshot.'
+      noLayout: 'No layout data in snapshot.',
+      loadingChunks: 'Loading geometry… {loaded}/{total}',
+      loadingOsnap: 'Loading object snap… {loaded}/{total}',
+      buildingOsnap: 'Building object snap index…'
+    },
+    package: {
+      title: 'Open drawing package',
+      hint: 'No drawing.acex.json was found next to this page. Choose a local package folder or enter the manifest URL.',
+      hintUrlOnly:
+        'No drawing.acex.json was found next to this page. Enter the manifest URL to open the package.',
+      chooseFolder: 'Choose local folder',
+      urlPlaceholder: 'https://example.com/drawing.acex.json',
+      openUrl: 'Open URL',
+      urlRequired: 'Please enter a manifest URL.',
+      manifestNotFound: 'drawing.acex.json was not found next to this page.',
+      invalidManifest:
+        'The package manifest is invalid or uses an unsupported version: {error}',
+      folderMissingManifest:
+        'The selected folder must contain drawing.acex.json.',
+      folderUnsupported:
+        'This browser cannot open a local package folder. Paste a manifest URL instead.',
+      loadFailed: 'Failed to open package: {error}'
     },
     access: {
       title: 'Protected drawing',
@@ -451,8 +549,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       layers: '图层',
       layout: '布局',
       settings: '设置',
-      themeLight: '深色',
-      themeDark: '浅色',
+      simulatedMouseOn: '鼠标',
+      simulatedMouseOff: '放大',
+      themeLight: '浅色',
+      themeDark: '深色',
       switchBg: '背景',
       language: '语言',
       localeEn: 'English',
@@ -460,7 +560,8 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       localeCs: 'Čeština',
       localeTr: 'Türkçe',
       collapse: '收起工具栏',
-      expand: '展开工具栏'
+      expand: '展开工具栏',
+      moreOverflow: '更多工具'
     },
     settings: {
       ortho: '切换正交模式',
@@ -478,6 +579,32 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       rgb: 'RGB：',
       input: '颜色',
       inputPlaceholder: '1-255 或 #RRGGBB'
+    },
+    shortCutToolbar: {
+      more: '更多',
+      undo: '撤销',
+      redo: '重做',
+      erase: '删除',
+      collapse: '收起工具栏',
+      expand: '展开工具栏'
+    },
+    textHeight: {
+      title: '字高设置',
+      close: '关闭',
+      ok: '确定',
+      cancel: '取消',
+      adaptive: '自适应屏幕',
+      custom: '自定义字高',
+      customPlaceholder: '世界坐标字高',
+      fromScreen: '按屏幕字号换算',
+      fromScreenHint:
+        '按当前视图缩放，输入希望看到的屏幕字号（像素），换算为固定的世界坐标字高；之后缩放时字的世界高度不变。',
+      screenPxPlaceholder: '屏幕字号',
+      screenUnit: 'px',
+      convert: '换算'
+    },
+    entityPick: {
+      cancel: '取消选择'
     },
     layers: {
       title: '图层',
@@ -532,6 +659,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       y: 'Y',
       confirm: '确定',
       cancel: '取消',
+      help: '帮助',
+      back: '返回',
+      collapse: '收起',
+      expand: '展开',
       undo: '撤销'
     },
     touchPointTutorial: {
@@ -581,15 +712,36 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       markupImported: '已导入 {count} 条批注。',
       markupImportFailed: '导入批注失败：{error}',
       distance: '距离：{value}',
-      coordinates: 'X：{x}  Y：{y}',
+      coordinates: 'X：{x} | Y：{y}',
       angle: '角度：{value}',
-      arcLength: '弧长：{value}',
+      arcLength:
+        '弧长：{length} | 半径：{radius} | 总角度：{angle} | 弦长：{chord}',
+      continuousTotal: '总长度：{value}',
       area: '面积：{value}',
       lengthTotal: '长度合计：{value}',
       areaTotal: '面积合计：{value}',
       zoomLayer: '缩放：{name}',
       loadFailed: '无法加载图纸：{error}',
-      noLayout: '快照中没有布局数据。'
+      noLayout: '快照中没有布局数据。',
+      loadingChunks: '正在加载几何… {loaded}/{total}',
+      loadingOsnap: '正在加载对象捕捉… {loaded}/{total}',
+      buildingOsnap: '正在构建对象捕捉索引…'
+    },
+    package: {
+      title: '打开图纸包',
+      hint: '当前页面同级目录未找到 drawing.acex.json。请选择本地包文件夹，或输入清单 URL。',
+      hintUrlOnly:
+        '当前页面同级目录未找到 drawing.acex.json。请输入清单 URL 以打开图纸包。',
+      chooseFolder: '选择本地文件夹',
+      urlPlaceholder: 'https://example.com/drawing.acex.json',
+      openUrl: '打开 URL',
+      urlRequired: '请输入清单 URL。',
+      manifestNotFound: '当前页面同级目录未找到 drawing.acex.json。',
+      invalidManifest: '包清单无效或版本不受支持：{error}',
+      folderMissingManifest: '所选文件夹必须包含 drawing.acex.json。',
+      folderUnsupported:
+        '当前浏览器无法选择本地包文件夹，请改为输入清单 URL。',
+      loadFailed: '无法打开图纸包：{error}'
     },
     access: {
       title: '受保护的图纸',
@@ -647,8 +799,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       layers: 'Hladiny',
       layout: 'Rozvržení',
       settings: 'Nastavení',
-      themeLight: 'Tmavý',
-      themeDark: 'Světlý',
+      simulatedMouseOn: 'Myš',
+      simulatedMouseOff: 'Lupa',
+      themeLight: 'Světlý',
+      themeDark: 'Tmavý',
       switchBg: 'Pozadí',
       language: 'Jazyk',
       localeEn: 'English',
@@ -656,7 +810,8 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       localeCs: 'Čeština',
       localeTr: 'Türkçe',
       collapse: 'Sbalit panel nástrojů',
-      expand: 'Rozbalit panel nástrojů'
+      expand: 'Rozbalit panel nástrojů',
+      moreOverflow: 'Další nástroje'
     },
     settings: {
       ortho: 'Přepnout ortogonální režim',
@@ -674,6 +829,32 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       rgb: 'RGB: ',
       input: 'Barva',
       inputPlaceholder: '1-255 nebo #RRGGBB'
+    },
+    shortCutToolbar: {
+      more: 'Více',
+      undo: 'Zpět',
+      redo: 'Znovu',
+      erase: 'Smazat',
+      collapse: 'Sbalit panel nástrojů',
+      expand: 'Rozbalit panel nástrojů'
+    },
+    textHeight: {
+      title: 'Výška textu',
+      close: 'Zavřít',
+      ok: 'OK',
+      cancel: 'Zrušit',
+      adaptive: 'Přizpůsobit obrazovce',
+      custom: 'Vlastní výška textu',
+      customPlaceholder: 'Světová výška',
+      fromScreen: 'Ze velikosti na obrazovce',
+      fromScreenHint:
+        'Zadejte, jak velký má text vypadat na obrazovce při aktuálním zoomu. Přepočítá se na pevnou světovou výšku, která se při pozdějším zoomování nemění.',
+      screenPxPlaceholder: 'Velikost písma',
+      screenUnit: 'px',
+      convert: 'Přepočítat'
+    },
+    entityPick: {
+      cancel: 'Zrušit výběr'
     },
     layers: {
       title: 'Hladiny',
@@ -728,6 +909,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       y: 'Y',
       confirm: 'Potvrdit',
       cancel: 'Zrušit',
+      help: 'Nápověda',
+      back: 'Zpět',
+      collapse: 'Sbalit',
+      expand: 'Rozbalit',
       undo: 'Zpět'
     },
     touchPointTutorial: {
@@ -783,15 +968,38 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       markupImported: 'Importováno {count} poznámek.',
       markupImportFailed: 'Import poznámek selhal: {error}',
       distance: 'Vzdálenost: {value}',
-      coordinates: 'X: {x}  Y: {y}',
+      coordinates: 'X: {x} | Y: {y}',
       angle: 'Úhel: {value}',
-      arcLength: 'Délka oblouku: {value}',
+      arcLength:
+        'Délka oblouku: {length} | Poloměr: {radius} | Úhel: {angle} | Tětiva: {chord}',
+      continuousTotal: 'Celková délka: {value}',
       area: 'Plocha: {value}',
       lengthTotal: 'Celková délka: {value}',
       areaTotal: 'Celková plocha: {value}',
       zoomLayer: 'Zoom: {name}',
       loadFailed: 'Nepodařilo se načíst výkres: {error}',
-      noLayout: 'Snímek neobsahuje data rozvržení.'
+      noLayout: 'Snímek neobsahuje data rozvržení.',
+      loadingChunks: 'Načítání geometrie… {loaded}/{total}',
+      loadingOsnap: 'Načítání uchopování… {loaded}/{total}',
+      buildingOsnap: 'Sestavování indexu uchopování…'
+    },
+    package: {
+      title: 'Otevřít balíček výkresu',
+      hint: 'Vedle této stránky nebyl nalezen drawing.acex.json. Vyberte místní složku balíčku nebo zadejte URL manifestu.',
+      hintUrlOnly:
+        'Vedle této stránky nebyl nalezen drawing.acex.json. Zadejte URL manifestu pro otevření balíčku.',
+      chooseFolder: 'Vybrat místní složku',
+      urlPlaceholder: 'https://example.com/drawing.acex.json',
+      openUrl: 'Otevřít URL',
+      urlRequired: 'Zadejte URL manifestu.',
+      manifestNotFound: 'drawing.acex.json nebyl vedle této stránky nalezen.',
+      invalidManifest:
+        'Manifest balíčku je neplatný nebo používá nepodporovanou verzi: {error}',
+      folderMissingManifest:
+        'Vybraná složka musí obsahovat drawing.acex.json.',
+      folderUnsupported:
+        'Tento prohlížeč neumí otevřít místní složku balíčku. Zadejte místo toho URL manifestu.',
+      loadFailed: 'Nepodařilo se otevřít balíček: {error}'
     },
     access: {
       title: 'Chráněný výkres',
@@ -851,8 +1059,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       layers: 'Katman',
       layout: 'Düzen',
       settings: 'Ayarlar',
-      themeLight: 'Koyu',
-      themeDark: 'Açık',
+      simulatedMouseOn: 'Fare',
+      simulatedMouseOff: 'Büyüteç',
+      themeLight: 'Açık',
+      themeDark: 'Koyu',
       switchBg: 'Arka plan',
       language: 'Dil',
       localeEn: 'English',
@@ -860,7 +1070,8 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       localeCs: 'Čeština',
       localeTr: 'Türkçe',
       collapse: 'Araç çubuğunu daralt',
-      expand: 'Araç çubuğunu genişlet'
+      expand: 'Araç çubuğunu genişlet',
+      moreOverflow: 'Diğer araçlar'
     },
     settings: {
       ortho: 'Dik modu aç/kapat',
@@ -878,6 +1089,32 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       rgb: 'RGB: ',
       input: 'Renk',
       inputPlaceholder: '1-255 veya #RRGGBB'
+    },
+    shortCutToolbar: {
+      more: 'Daha fazla',
+      undo: 'Geri al',
+      redo: 'Yinele',
+      erase: 'Sil',
+      collapse: 'Araç çubuğunu daralt',
+      expand: 'Araç çubuğunu genişlet'
+    },
+    textHeight: {
+      title: 'Yazı Yüksekliği',
+      close: 'Kapat',
+      ok: 'Tamam',
+      cancel: 'İptal',
+      adaptive: 'Ekrana uyarla',
+      custom: 'Özel yazı yüksekliği',
+      customPlaceholder: 'Dünya yüksekliği',
+      fromScreen: 'Ekran boyutundan',
+      fromScreenHint:
+        'Geçerli yakınlaştırmada ekranda istediğiniz yazı boyutunu girin. Sabit bir dünya yüksekliğine dönüştürülür; sonra yakınlaştırınca bu yükseklik değişmez.',
+      screenPxPlaceholder: 'Yazı boyutu',
+      screenUnit: 'px',
+      convert: 'Dönüştür'
+    },
+    entityPick: {
+      cancel: 'Seçimi iptal et'
     },
     layers: {
       title: 'Katmanlar',
@@ -932,6 +1169,10 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       y: 'Y',
       confirm: 'Onayla',
       cancel: 'İptal',
+      help: 'Yardım',
+      back: 'Geri',
+      collapse: 'Daralt',
+      expand: 'Genişlet',
       undo: 'Geri al'
     },
     touchPointTutorial: {
@@ -988,15 +1229,38 @@ const BASE_MESSAGES: Record<Exclude<AcExHtmlLocale, 'ar'>, AcExMessageTree> = {
       markupImported: '{count} işaretleme içe aktarıldı.',
       markupImportFailed: 'İşaretleme içe aktarılamadı: {error}',
       distance: 'Mesafe: {value}',
-      coordinates: 'X: {x}  Y: {y}',
+      coordinates: 'X: {x} | Y: {y}',
       angle: 'Açı: {value}',
-      arcLength: 'Yay uzunluğu: {value}',
+      arcLength:
+        'Yay uzunluğu: {length} | Yarıçap: {radius} | Açı: {angle} | Kiriş: {chord}',
+      continuousTotal: 'Toplam uzunluk: {value}',
       area: 'Alan: {value}',
       lengthTotal: 'Toplam uzunluk: {value}',
       areaTotal: 'Toplam alan: {value}',
       zoomLayer: 'Yakınlaştır: {name}',
       loadFailed: 'Çizim yüklenemedi: {error}',
-      noLayout: 'Anlık görüntüde yerleşim verisi yok.'
+      noLayout: 'Anlık görüntüde yerleşim verisi yok.',
+      loadingChunks: 'Geometri yükleniyor… {loaded}/{total}',
+      loadingOsnap: 'Nesne yakalama yükleniyor… {loaded}/{total}',
+      buildingOsnap: 'Nesne yakalama dizini oluşturuluyor…'
+    },
+    package: {
+      title: 'Çizim paketini aç',
+      hint: 'Bu sayfanın yanında drawing.acex.json bulunamadı. Yerel bir paket klasörü seçin veya manifesto URL’sini girin.',
+      hintUrlOnly:
+        'Bu sayfanın yanında drawing.acex.json bulunamadı. Paketi açmak için manifesto URL’sini girin.',
+      chooseFolder: 'Yerel klasör seç',
+      urlPlaceholder: 'https://example.com/drawing.acex.json',
+      openUrl: 'URL aç',
+      urlRequired: 'Lütfen bir manifesto URL’si girin.',
+      manifestNotFound: 'Bu sayfanın yanında drawing.acex.json bulunamadı.',
+      invalidManifest:
+        'Paket manifestosu geçersiz veya desteklenmeyen bir sürüm kullanıyor: {error}',
+      folderMissingManifest:
+        'Seçilen klasör drawing.acex.json içermelidir.',
+      folderUnsupported:
+        'Bu tarayıcı yerel paket klasörü açamıyor. Bunun yerine manifesto URL’si yapıştırın.',
+      loadFailed: 'Paket açılamadı: {error}'
     },
     access: {
       title: 'Korumalı çizim',
@@ -1058,8 +1322,10 @@ const AR_MESSAGES: AcExMessageTree = {
     'layers': 'طبقات',
     'layout': 'تخطيط',
     'settings': 'إعدادات',
-    'themeLight': 'داكن',
-    'themeDark': 'فاتح',
+    'simulatedMouseOn': 'ماوس',
+    'simulatedMouseOff': 'عدسة',
+    'themeLight': 'فاتح',
+    'themeDark': 'داكن',
     'switchBg': 'خلفية',
     'language': 'اللغة',
     'localeEn': 'English',
@@ -1068,7 +1334,8 @@ const AR_MESSAGES: AcExMessageTree = {
     'localeTr': 'Türkçe',
     'localeAr': 'العربية',
     'collapse': 'طي شريط الأدوات',
-    'expand': 'توسيع شريط الأدوات'
+    'expand': 'توسيع شريط الأدوات',
+    'moreOverflow': 'المزيد من الأدوات'
   },
   'settings': {
     'ortho': 'تبديل الوضع المتعامد',
@@ -1086,6 +1353,21 @@ const AR_MESSAGES: AcExMessageTree = {
     'rgb': 'RGB: ',
     'input': 'اللون',
     'inputPlaceholder': '1-255 أو #RRGGBB'
+  },
+  'textHeight': {
+    'title': 'ارتفاع النص',
+    'close': 'إغلاق',
+    'ok': 'موافق',
+    'cancel': 'إلغاء',
+    'adaptive': 'ملاءمة الشاشة',
+    'custom': 'ارتفاع نص مخصص',
+    'customPlaceholder': 'ارتفاع العالم',
+    'fromScreen': 'من حجم الشاشة',
+    'fromScreenHint':
+      'أدخل حجم النص المطلوب على الشاشة عند التكبير الحالي. يُحوَّل إلى ارتفاع ثابت في إحداثيات الرسم ويبقى كما هو عند تغيير التكبير لاحقًا.',
+    'screenPxPlaceholder': 'حجم الخط',
+    'screenUnit': 'px',
+    'convert': 'تحويل'
   },
   'layers': {
     'title': 'الطبقات',
@@ -1140,6 +1422,10 @@ const AR_MESSAGES: AcExMessageTree = {
     'y': 'Y',
     'confirm': 'تأكيد',
     'cancel': 'إلغاء',
+    'help': 'مساعدة',
+    'back': 'رجوع',
+    'collapse': 'طي',
+    'expand': 'توسيع',
     'undo': 'تراجع'
   },
   'touchPointTutorial': {
@@ -1186,15 +1472,38 @@ const AR_MESSAGES: AcExMessageTree = {
     'markupImported': 'تم استيراد {count} من الملاحظات.',
     'markupImportFailed': 'فشل استيراد الملاحظات: {error}',
     'distance': 'المسافة: {value}',
-    'coordinates': 'X: {x}  Y: {y}',
+    'coordinates': 'X: {x} | Y: {y}',
     'angle': 'الزاوية: {value}',
-    'arcLength': 'طول القوس: {value}',
+    'arcLength':
+      'طول القوس: {length} | نصف القطر: {radius} | الزاوية: {angle} | الوتر: {chord}',
+    'continuousTotal': 'إجمالي الطول: {value}',
     'area': 'المساحة: {value}',
     'lengthTotal': 'إجمالي الطول: {value}',
     'areaTotal': 'إجمالي المساحة: {value}',
     'zoomLayer': 'تكبير: {name}',
     'loadFailed': 'فشل تحميل الرسم: {error}',
-    'noLayout': 'لا توجد بيانات تخطيط في اللقطة.'
+    'noLayout': 'لا توجد بيانات تخطيط في اللقطة.',
+    'loadingChunks': 'جاري تحميل الهندسة… {loaded}/{total}',
+    'loadingOsnap': 'جاري تحميل الالتقاط… {loaded}/{total}',
+    'buildingOsnap': 'جاري بناء فهرس الالتقاط…'
+  },
+  package: {
+    title: 'فتح حزمة الرسم',
+    hint: 'لم يتم العثور على drawing.acex.json بجانب هذه الصفحة. اختر مجلد الحزمة المحلي أو أدخل عنوان URL للقائمة.',
+    hintUrlOnly:
+      'لم يتم العثور على drawing.acex.json بجانب هذه الصفحة. أدخل عنوان URL للقائمة لفتح الحزمة.',
+    chooseFolder: 'اختيار مجلد محلي',
+    urlPlaceholder: 'https://example.com/drawing.acex.json',
+    openUrl: 'فتح الرابط',
+    urlRequired: 'يرجى إدخال عنوان URL للقائمة.',
+    manifestNotFound: 'لم يتم العثور على drawing.acex.json بجانب هذه الصفحة.',
+    invalidManifest:
+      'قائمة الحزمة غير صالحة أو تستخدم إصداراً غير مدعوم: {error}',
+    folderMissingManifest:
+      'يجب أن يحتوي المجلد المحدد على drawing.acex.json.',
+    folderUnsupported:
+      'لا يمكن لهذا المتصفح فتح مجلد حزمة محلي. الصق عنوان URL للقائمة بدلاً من ذلك.',
+    loadFailed: 'تعذر فتح الحزمة: {error}'
   },
   access: {
     title: 'رسم محمي',
@@ -1433,11 +1742,5 @@ export class AcExHtmlI18n {
 
     const badge = document.getElementById('mlcad-lang-badge')
     if (badge) badge.textContent = this.localeBadge
-
-    const langBtn = document.getElementById('mlcad-lang-btn')
-    if (langBtn) {
-      langBtn.setAttribute('title', this.t('toolbar.language'))
-      langBtn.setAttribute('aria-label', this.t('toolbar.language'))
-    }
   }
 }

@@ -10,9 +10,13 @@
 
 import type { AcExMarkupPoint2d } from './AcExMarkupTypes'
 import {
-  acExIsOverlayGrip,
-  acExIsOverlayGripSelected,
-  acExSetOverlayGripsDragging
+  acexHideMobileSnapLoupe,
+  acexRefreshMobileSnapLoupe
+} from './AcExMobileSnapLoupe'
+import {
+  acexIsOverlayGrip,
+  acexIsOverlayGripSelected,
+  acexSetOverlayGripsDragging
 } from './AcExOverlayGrip'
 
 /** Pointer movement (CSS px, squared) before a drag starts. */
@@ -23,7 +27,7 @@ const windowListenerOptions: AddEventListenerOptions = {
   passive: false
 }
 
-/** Options for {@link acExBindMarkupPointerDrag}. */
+/** Options for {@link acexBindMarkupPointerDrag}. */
 export interface AcExMarkupPointerDragOptions {
   /** DOM handle that receives pointerdown. */
   el: HTMLElement
@@ -41,19 +45,29 @@ export interface AcExMarkupPointerDragOptions {
   onCommit: () => void
   /** When true, the binding is inactive (e.g. a create tool is active). */
   isEnabled?: () => boolean
+  /**
+   * When true (default), touch drags refresh the shared mobile snap loupe.
+   * Set false for whole-object moves that do not use object snap
+   * (callout bubble, text/stamp).
+   */
+  showSnapLoupe?: boolean
 }
 
 /**
  * Bind pointer-drag on one HTML overlay handle.
  *
+ * On touch, osnap grips also drive the shared mobile snap loupe so the user
+ * can see the magnified sample while moving an endpoint.
+ *
  * @returns Cleanup that removes listeners and cancels an in-progress drag.
  */
-export function acExBindMarkupPointerDrag(
+export function acexBindMarkupPointerDrag(
   options: AcExMarkupPointerDragOptions
 ): () => void {
   const { el, clientToWorld, onDragStart, onMove, onCommit } = options
-  const isGrip = acExIsOverlayGrip(el)
+  const isGrip = acexIsOverlayGrip(el)
   const idleCursor = options.cursor ?? 'grab'
+  const showSnapLoupeOpt = options.showSnapLoupe !== false
 
   if (!isGrip) {
     el.style.pointerEvents = 'auto'
@@ -67,14 +81,14 @@ export function acExBindMarkupPointerDrag(
 
   const dragAllowed = (): boolean => {
     if (options.isEnabled && !options.isEnabled()) return false
-    if (isGrip && !acExIsOverlayGripSelected(el)) return false
+    if (isGrip && !acexIsOverlayGripSelected(el)) return false
     return true
   }
 
   const restoreGrips = () => {
     if (!hidGrips) return
     hidGrips = false
-    acExSetOverlayGripsDragging(false)
+    acexSetOverlayGripsDragging(false)
   }
 
   const onPointerDown = (e: PointerEvent) => {
@@ -103,6 +117,11 @@ export function acExBindMarkupPointerDrag(
     const startX = e.clientX
     const startY = e.clientY
     let dragging = false
+    const showSnapLoupe = showSnapLoupeOpt && e.pointerType === 'touch'
+
+    const hideSnapLoupe = () => {
+      if (showSnapLoupe) acexHideMobileSnapLoupe()
+    }
 
     const detach = () => {
       window.removeEventListener(
@@ -136,16 +155,21 @@ export function acExBindMarkupPointerDrag(
         el.style.cursor = 'grabbing'
         if (isGrip) {
           hidGrips = true
-          acExSetOverlayGripsDragging(true)
+          acexSetOverlayGripsDragging(true)
         }
         onDragStart?.()
       }
-      onMove(clientToWorld(ev.clientX, ev.clientY), ev)
+      const world = clientToWorld(ev.clientX, ev.clientY)
+      if (showSnapLoupe) {
+        acexRefreshMobileSnapLoupe(ev.clientX, ev.clientY)
+      }
+      onMove(world, ev)
     }
 
     const onPointerUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
       detach()
+      hideSnapLoupe()
       if (!dragging) return
       el.style.cursor = idleCursor
       restoreGrips()
@@ -154,6 +178,7 @@ export function acExBindMarkupPointerDrag(
 
     detachActiveDrag?.()
     detachActiveDrag = () => {
+      hideSnapLoupe()
       restoreGrips()
       detach()
     }

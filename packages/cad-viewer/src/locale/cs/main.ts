@@ -522,8 +522,11 @@ export default {
       description: 'Nastaví barvu nových poznámek'
     },
     markupFontSize: {
-      text: 'Velikost písma',
-      description: 'Nastaví velikost písma textových a odkazových poznámek'
+      text: 'Výška textu',
+      description:
+        'Otevře nastavení výšky textu poznámek (přizpůsobit obrazovce nebo světová výška)',
+      fit: 'Fit',
+      wcs: 'WCS'
     },
     measurementColor: {
       text: 'Barva',
@@ -531,9 +534,11 @@ export default {
         'Nastaví barvu vybraného měření, nebo měření, která přidáte příště'
     },
     measurementFontSize: {
-      text: 'Velikost písma',
+      text: 'Výška textu',
       description:
-        'Nastaví velikost písma vybraného měření, nebo měření, která přidáte příště'
+        'Otevře nastavení výšky textu vybraného měření, nebo měření, která přidáte příště',
+      fit: 'Fit',
+      wcs: 'WCS'
     },
     showMarkup: {
       text: 'Zobrazit',
@@ -561,7 +566,9 @@ export default {
     },
     switchBg: {
       text: 'Pozadí',
-      description: 'Přepne pozadí výkresu mezi bílým a černým'
+      description: 'Přepne pozadí výkresu mezi bílým a černým',
+      disabledInReadingMode:
+        'Nedostupné v režimu čtení (bílé plátno je pevné)'
     },
     zoomToExtent: {
       text: 'Zoom vše',
@@ -991,15 +998,32 @@ export default {
       'Nepodařilo se otevřít „{fileName}“. Při načítání výkresu vypršel časový limit.',
     failedToOpenFileFontLoadFailed:
       'Nepodařilo se otevřít „{fileName}“. Potřebné fonty se nepodařilo načíst.',
+    failedToOpenFileLicenseExpired:
+      'Nepodařilo se otevřít „{fileName}“. Licence převodníku DWG vypršela.',
+    failedToOpenFileLicenseInvalid:
+      'Nepodařilo se otevřít „{fileName}“. Licence převodníku DWG chybí nebo je neplatná.',
     fetchingDrawingFile: 'Načítám soubor…',
     unknownEntities:
-      'Tento výkres obsahuje {count} neznámých nebo nepodporovaných objektů! Tyto objekty nebudou zobrazeny.'
+      'Tento výkres obsahuje {count} neznámých nebo nepodporovaných objektů! Tyto objekty nebudou zobrazeny.',
+    tianzhengEntities:
+      'Tento výkres obsahuje vlastní objekty TArch / Tianzheng (nebo podobné třetí strany) (asi {count}). V tomto prostředí je nelze plně zpracovat, takže se část obsahu nemusí zobrazit.',
+    emptyProxyEntities:
+      'Tento výkres obsahuje {count} vlastních objektů bez proxy grafiky! Tyto objekty nebudou zobrazeny.'
   },
   notification: {
     center: {
       title: 'Oznámení',
       clearAll: 'Vymazat vše',
       noNotifications: 'Žádná oznámení'
+    },
+    group: {
+      fontMissed: 'Chybějící fonty',
+      fontMissedSummary:
+        '{count} zpráv o fontech. Kliknutím zobrazíte podrobnosti.',
+      unsupportedEntities: 'Nepodporované objekty',
+      unsupportedEntitiesSummary:
+        '{count} zpráv o načítání. Kliknutím zobrazíte podrobnosti.',
+      genericSummary: '{count} zpráv. Kliknutím zobrazíte podrobnosti.'
     },
     time: {
       justNow: 'Právě teď',
@@ -1012,9 +1036,15 @@ export default {
       failedToOpenFileWorkerOom: 'Výkres je příliš velký',
       failedToOpenFileWorkerTimeout: 'Vypršel časový limit otevření',
       failedToOpenFileFontLoadFailed: 'Načtení fontu selhalo',
+      failedToOpenFileLicenseExpired: 'Licence vypršela',
+      failedToOpenFileLicenseInvalid: 'Neplatná licence',
       fontNotFound: 'Font nenalezen',
       fontNotLoaded: 'Font nenačten',
-      parsingWarning: 'Problémy při načítání výkresu'
+      parsingWarning: 'Problémy při načítání výkresu',
+      systemMessage: 'Systémová zpráva',
+      systemWarning: 'Systémové varování',
+      systemError: 'Systémová chyba',
+      systemInfo: 'Systémové informace'
     }
   }
 }

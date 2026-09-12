@@ -1,5 +1,7 @@
 import {
+  AcApDocManager,
   type AcApLocale,
+  AcApSettingManager,
   AcEdOpenMode,
   type AcEdUiTheme,
   isMarkupVisible,
@@ -44,6 +46,7 @@ import {
   ICON_REV_RECT,
   ICON_SELECT,
   ICON_SETTINGS,
+  ICON_SIMULATED_MOUSE,
   ICON_SWITCH_BG,
   ICON_THEME_DARK,
   ICON_THEME_LIGHT,
@@ -119,8 +122,14 @@ const LOCALE_LABELS: Record<AcApLocale, string> = {
   ar: 'toolbar.localeAr'
 }
 
+/**
+ * Locale short-code badge for toolbar icons.
+ *
+ * Uses HTML text (not SVG `<text>`) so the glyph stays sharp at the 18px
+ * toolbar icon size. SVG text often looks soft/blurry when CSS-scaled.
+ */
 function localeBadgeIcon(badge: string): string {
-  return `<span style="font-size:10px;font-weight:700;line-height:1">${badge}</span>`
+  return `<span class="ml-ex-ui-locale-badge">${badge}</span>`
 }
 
 function acuiCreateToolbarLocaleItem(
@@ -167,6 +176,72 @@ function acuiCreateThemeToolbarItem(
         label: 'toolbar.themeDark',
         icon: ICON_THEME_DARK,
         action: toggleTheme
+      }
+    }
+  }
+}
+
+/**
+ * Builds the simulated-mouse toggle for touch precise point picking.
+ *
+ * Bound to {@link AcApSettings.useSimulatedMouseOnTouch}. When on, long-press
+ * picks use a crosshair above the finger; when off, the magnifier loupe
+ * tracks the fingertip.
+ *
+ * @returns Toggle toolbar item.
+ */
+function acuiCreateSimulatedMouseToolbarItem(): AcUiToolbarItem {
+  const toggle = () =>
+    AcApSettingManager.instance.toggle('useSimulatedMouseOnTouch')
+  return {
+    id: 'simulated-mouse',
+    requiresDocument: false,
+    toggle: {
+      getValue: () =>
+        !!AcApSettingManager.instance.get('useSimulatedMouseOnTouch'),
+      on: {
+        label: 'toolbar.simulatedMouseOn',
+        icon: ICON_SIMULATED_MOUSE,
+        action: toggle
+      },
+      off: {
+        label: 'toolbar.simulatedMouseOff',
+        icon: ICON_SIMULATED_MOUSE,
+        action: toggle
+      }
+    }
+  }
+}
+
+/** Whether transient reading mode is active on the current view. */
+function acuiIsReadingModeEnabled(): boolean {
+  try {
+    return AcApDocManager.instance.isReadingModeEnabled()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Builds the reading-mode toggle (black linework on a white canvas).
+ *
+ * @returns Toggle toolbar item bound to the `readingmode` command.
+ */
+function acuiCreateReadingModeToolbarItem(): AcUiToolbarItem {
+  return {
+    id: 'reading-mode',
+    requiresDocument: true,
+    toggle: {
+      getValue: acuiIsReadingModeEnabled,
+      on: {
+        label: 'toolbar.readingMode',
+        icon: ICON_READING_MODE,
+        command: 'readingmode'
+      },
+      off: {
+        label: 'toolbar.readingMode',
+        icon: ICON_READING_MODE,
+        command: 'readingmode'
       }
     }
   }
@@ -396,9 +471,11 @@ export function acuiCreateZoomToolbarItem(): AcUiToolbarItem {
 }
 
 /**
- * Builds the phone-layout settings parent (theme, background, language).
+ * Builds the settings parent (simulated mouse, dock placement, theme, language).
  *
- * @param context - Optional callbacks for theme toggle and locale submenu items.
+ * Used by phone and by desktop/pad so chrome preferences live in one strip.
+ *
+ * @param context - Optional callbacks for theme toggle, locale, and placement.
  * @returns Settings toolbar item with nested dismissible sub-toolbars.
  */
 export function acuiCreateSettingsToolbarItem(
@@ -411,20 +488,19 @@ export function acuiCreateSettingsToolbarItem(
     requiresDocument: false,
     childrenUi: 'toolbar',
     children: [
+      acuiCreateSimulatedMouseToolbarItem(),
+      acuiCreateToolbarPlacementItem(context),
       acuiCreateThemeToolbarItem(context),
       {
         id: 'switch-bg',
         label: 'toolbar.switchBg',
         icon: ICON_SWITCH_BG,
-        command: 'switchbg'
+        command: 'switchbg',
+        // Reading mode forces a white canvas; switching background has no
+        // visible effect until reading mode is turned off.
+        disabled: acuiIsReadingModeEnabled
       },
-      {
-        id: 'reading-mode',
-        label: 'toolbar.readingMode',
-        icon: ICON_READING_MODE,
-        requiresDocument: true,
-        command: 'readingmode'
-      },
+      acuiCreateReadingModeToolbarItem(),
       acuiCreateToolbarLocaleItem(context)
     ]
   }
@@ -471,19 +547,6 @@ export function acuiCreateDefaultToolbarItems(
       command: 'layer'
     },
     acuiCreateLayoutToolbarItem(),
-    {
-      id: 'switch-bg',
-      label: 'toolbar.switchBg',
-      icon: ICON_SWITCH_BG,
-      command: 'switchbg'
-    },
-    {
-      id: 'reading-mode',
-      label: 'toolbar.readingMode',
-      icon: ICON_READING_MODE,
-      requiresDocument: true,
-      command: 'readingmode'
-    },
     acuiCreateMeasureToolbarItem(),
     acuiCreateAnnotationToolbarItem(),
     {
@@ -516,9 +579,7 @@ export function acuiCreateDefaultToolbarItems(
       type: 'separator',
       id: 'sep-settings'
     },
-    acuiCreateToolbarPlacementItem(context),
-    acuiCreateThemeToolbarItem(context),
-    acuiCreateToolbarLocaleItem(context)
+    acuiCreateSettingsToolbarItem(context)
   ]
 
   return items

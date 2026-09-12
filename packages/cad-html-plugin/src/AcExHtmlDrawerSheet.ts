@@ -1,12 +1,17 @@
 /**
- * Shared phone-sheet chrome for HTML layer / review / measurement drawers:
- * full-width sheet above the toolbar, grabber to resize height, close arrow.
+ * Shared drawer-sheet chrome for HTML layer / review / measurement drawers:
+ * full-width sheet above the toolbar on phone, grabber to resize height,
+ * close arrow. Results drawers live inside tool-strip wraps; opening one
+ * parks the drawer on the sidebar so dismissing the strip does not hide it.
  *
- * @module AcExHtmlDrawerSheet
+ * @module acexHtmlDrawerSheet
  * @packageDocumentation
  */
 
-import { ML_UI_COMPACT_MAX_WIDTH, ML_UI_MOBILE_MAX_WIDTH } from './AcExHtmlShell'
+import {
+  ML_UI_COMPACT_MAX_WIDTH,
+  ML_UI_MOBILE_MAX_WIDTH
+} from './AcExHtmlShell'
 
 const MIN_HEIGHT = 160
 const DEFAULT_HEIGHT_VH = 0.42
@@ -16,14 +21,14 @@ export interface AcExHtmlDrawerSheetController {
   /** Recompute `--mlcad-phone-drawer-bottom` from visible chrome. */
   syncInset: () => void
   /**
-   * On phone, moves the drawer onto the sidebar (so closing a strip wrap does
-   * not hide it) and dismisses open tool strips.
+   * Parks the drawer on the sidebar (so closing a strip wrap does not hide
+   * it). On phone, also dismisses open tool strips and syncs the sheet inset.
    */
   preparePhoneOpen: (drawer: HTMLElement) => void
 }
 
 /** Whether the offline HTML chrome is using the phone breakpoint. */
-export function acExHtmlIsPhoneLayout(): boolean {
+export function acexHtmlIsPhoneLayout(): boolean {
   return (
     typeof window !== 'undefined' &&
     window.matchMedia?.(`(max-width: ${ML_UI_MOBILE_MAX_WIDTH}px)`).matches ===
@@ -32,11 +37,25 @@ export function acExHtmlIsPhoneLayout(): boolean {
 }
 
 /** Whether the offline HTML chrome is using the phone or pad breakpoint. */
-export function acExHtmlIsCompactLayout(): boolean {
+export function acexHtmlIsCompactLayout(): boolean {
   return (
     typeof window !== 'undefined' &&
     window.matchMedia?.(`(max-width: ${ML_UI_COMPACT_MAX_WIDTH}px)`).matches ===
       true
+  )
+}
+
+/**
+ * Whether idle touch should unify pan + long-press box select (and hide
+ * Select / Pan), and whether confirmed-point plus marks should show.
+ * Compact width covers phone and pad; coarse pointer covers wider tablets
+ * such as iPad landscape.
+ */
+export function acexHtmlIsMobileNavUi(): boolean {
+  return (
+    acexHtmlIsCompactLayout() ||
+    (typeof window !== 'undefined' &&
+      window.matchMedia?.('(pointer: coarse)').matches === true)
   )
 }
 
@@ -60,14 +79,14 @@ export function setupAcExHtmlDrawerSheets(options?: {
   }
 
   const restoreIfDesktop = () => {
-    if (acExHtmlIsPhoneLayout()) return
+    if (acexHtmlIsPhoneLayout()) return
     const sidebar = document.getElementById('mlcad-sidebar')
     for (const drawer of drawers) {
       drawer.style.height = ''
       drawer.style.maxHeight = ''
       const home = homeParent.get(drawer)
       if (!home) continue
-      // Phone open parks the drawer on the sidebar and closes strip wraps.
+      // Open parks the drawer on the sidebar and closes strip wraps.
       // Reparenting an open drawer into a hidden wrap would hide it while it
       // stays logically open — keep it on the sidebar until the wrap is shown
       // or the drawer is closed.
@@ -94,8 +113,13 @@ export function setupAcExHtmlDrawerSheets(options?: {
       if (wrap.hidden) return
       inset += wrap.offsetHeight
     })
-    const session = document.getElementById('mlcad-command-session')
-    if (session && !session.hidden && acExHtmlIsPhoneLayout()) {
+    const session =
+      document.querySelector('.ml-mobile-cmd-panel') as HTMLElement | null
+    if (
+      session &&
+      !session.closest('.ml-mobile-cmd')?.hasAttribute('hidden') &&
+      acexHtmlIsPhoneLayout()
+    ) {
       // Session replaces the toolbar (which stays in layout via visibility:
       // hidden). Pin the drawer to the session height only.
       inset = session.offsetHeight
@@ -106,14 +130,21 @@ export function setupAcExHtmlDrawerSheets(options?: {
     )
   }
 
+  /**
+   * Moves the drawer onto the sidebar before it is shown. Measure / review
+   * drawers are born inside dismissible strip wraps; without reparenting,
+   * closing the strip (pad/desktop child-click, or phone strip dismiss)
+   * would hide an open results panel.
+   */
   const preparePhoneOpen = (drawer: HTMLElement) => {
-    if (!acExHtmlIsPhoneLayout()) return
     const sidebar = document.getElementById('mlcad-sidebar')
     if (sidebar && drawer.parentElement !== sidebar) {
       sidebar.appendChild(drawer)
     }
-    options?.closeStrips?.()
-    syncInset()
+    if (acexHtmlIsPhoneLayout()) {
+      options?.closeStrips?.()
+      syncInset()
+    }
   }
 
   syncInset()

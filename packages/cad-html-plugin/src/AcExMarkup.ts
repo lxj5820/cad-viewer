@@ -4,7 +4,7 @@
  * Creates Design Review–style overlays (cloud, callout, text, rect, circle,
  * arrow, stamp) with sidecar JSON import/export compatible with cad-simple-viewer.
  *
- * @module AcExMarkup
+ * @module acexMarkup
  * @packageDocumentation
  */
 
@@ -13,36 +13,37 @@ import * as THREE from 'three'
 import type { AcExCommandSessionUiState } from './AcExCommandSessionPanel'
 import { AcExConfirmedPointMarks } from './AcExConfirmedPointMarks'
 import type { AcExHtmlI18n } from './AcExHtmlI18n'
-import { acExHtmlIcons } from './AcExHtmlIcons'
+import { AcExHtmlIcons } from './AcExHtmlIcons'
 import {
   ACEX_OVERLAY_ARROW_SIZE_PX,
-  acExPositionWcsOverlay,
-  acExResetOverlayViewScale,
-  acExScaledCanvasLineWidth,
-  acExScaledOverlayArrowSize,
-  acExScreenPxToWcs,
-  acExSeedOverlaySizesFromWcs
+  acexPositionWcsOverlay,
+  acexScaledCanvasLineWidth,
+  acexScaledOverlayArrowSize,
+  acexScreenPxToWcs,
+  acexSeedOverlaySizesFromWcs,
+  acexSyncLiveOverlayTextHeight
 } from './AcExHtmlOverlayDom'
 import {
-  acExComputeLeaderTipOnShape,
-  acExDrawMarkupArrowHead,
-  acExDrawMarkupLeader,
-  acExFitMarkupCanvas,
-  acExHitTestMarkup,
-  acExHitTestMarkupShapeOutline,
-  acExIsAttachableShapeMarkup,
-  acExMarkupCanvasLineWidth,
-  acExMarkupCenter,
-  acExMarkupFocusExtents,
+  acexComputeLeaderTipOnShape,
+  acexDrawMarkupArrowHead,
+  acexDrawMarkupLeader,
+  acexFitMarkupCanvas,
+  acexHitTestMarkup,
+  acexHitTestMarkupShapeOutline,
+  acexIsAttachableShapeMarkup,
+  acexMarkupBounds,
+  acexMarkupCanvasLineWidth,
+  acexMarkupCenter,
+  acexMarkupFocusExtents,
   type AcExMarkupShapeOutline,
-  acExMarkupShapeOutlineFromGeometry,
-  acExOverlayArrowSize,
-  acExStrokeMarkupCloud,
-  acExTranslateMarkupGeometry
+  acexMarkupShapeOutlineFromGeometry,
+  acexOverlayArrowSize,
+  acexStrokeMarkupCloud,
+  acexTranslateMarkupGeometry
 } from './AcExMarkupGeometry'
-import { acExBindMarkupPointerDrag } from './AcExMarkupGripDrag'
+import { acexBindMarkupPointerDrag } from './AcExMarkupGripDrag'
 import {
-  acExMarkupSidecarFileName,
+  acexMarkupSidecarFileName,
   parseAcExMarkupSidecar,
   stringifyAcExMarkupSidecar
 } from './AcExMarkupSidecar'
@@ -64,7 +65,9 @@ import type {
 import type { AcExTrackingOptions } from './AcExMeasureTracking'
 import { constrainToAcExTracking } from './AcExMeasureTracking'
 import type { AcExOsnapPoint } from './AcExOsnap'
-import { acExIsOverlayGrip, acExOverlayGripClassName } from './AcExOverlayGrip'
+import { acexOverlayGripClassName } from './AcExOverlayGrip'
+import { acexExtentsMatchBox, type AcExSelectionMode } from './AcExSelectionBox'
+import type { AcExSessionHistory } from './AcExSessionHistory'
 import type { AcExExtents } from './AcExSnapshotTypes'
 
 export type { AcExMarkupMode } from './AcExMarkupTypes'
@@ -107,7 +110,7 @@ interface AcExResolvedPoint {
 }
 
 /**
- * View/camera callbacks supplied by {@link AcExHtmlViewerRuntime}.
+ * View/camera callbacks supplied by {@link acexHtmlViewerRuntime}.
  */
 export interface AcExMarkupViewApi {
   screenToWcs: (clientX: number, clientY: number) => THREE.Vector2
@@ -145,6 +148,11 @@ export interface AcExMarkupControllerOptions {
    * Updates the touch session panel. Pass `null` when no markup tool is active.
    */
   onSessionUi?: (state: AcExCommandSessionUiState | null) => void
+  /**
+   * Optional session undo/redo coordinator (markup + measure).
+   * When set, create/delete/style/import edits are recorded.
+   */
+  sessionHistory?: AcExSessionHistory
 }
 
 type AcExMarkupCleanup = () => void
@@ -223,15 +231,18 @@ export class AcExMarkupController {
   private readonly _drawingName: string | undefined
   private readonly _onOsnapMarker: AcExMarkupControllerOptions['onOsnapMarker']
   private readonly _onActiveChange: ((active: boolean) => void) | null
-  private readonly _onSessionUi: ((
-    state: AcExCommandSessionUiState | null
-  ) => void) | null
+  private readonly _onSessionUi:
+    | ((state: AcExCommandSessionUiState | null) => void)
+    | null
   private readonly _onStyleChange: (() => void) | null
   private readonly _onBeforeActivate: (() => void) | null
   private readonly _getTrackingOptions:
     | (() => AcExTrackingOptions | null)
     | null
   private readonly _getActiveLayoutId: (() => string) | null
+  private readonly _sessionHistory: AcExSessionHistory | null
+  /** True while {@link restoreRecords} rebuilds visuals (skip nested history). */
+  private _restoring = false
 
   private readonly _overlayLayer: HTMLDivElement
   private readonly _previewCanvas: HTMLCanvasElement
@@ -245,6 +256,12 @@ export class AcExMarkupController {
   private _mode: AcExMarkupMode | null = null
   private _points: THREE.Vector2[] = []
   private _lastPointer: { x: number; y: number } | null = null
+  /**
+   * True while a live cursor sample should drive callout-anchor preview
+   * (mouse hover, or touch loupe). After the shape’s second point, the text
+   * capsule stays hidden until this is true again.
+   */
+  private _livePointer = false
   private _visible = true
   private _stampIndex = 0
   private _inOverlaySync = false
@@ -259,6 +276,8 @@ export class AcExMarkupController {
   } | null = null
   private _drawColor = ACEX_MARKUP_COLOR
   private _drawFontSize = ACEX_MARKUP_FONT_SIZE
+  private _drawTextHeightMode: 'adaptive' | 'custom' = 'adaptive'
+  private _drawCustomTextHeightWcs: number | undefined
   private _placingShapeCallout: AcExPlacingShapeCallout | null = null
   /** Blocks canvas placement while an inline text session is open. */
   private _awaitingInlineText = false
@@ -285,6 +304,7 @@ export class AcExMarkupController {
     this._onBeforeActivate = options.onBeforeActivate ?? null
     this._getTrackingOptions = options.getTrackingOptions ?? null
     this._getActiveLayoutId = options.getActiveLayoutId ?? null
+    this._sessionHistory = options.sessionHistory ?? null
 
     this._overlayLayer = document.createElement('div')
     this._overlayLayer.id = 'mlcad-markup-overlays'
@@ -304,11 +324,56 @@ export class AcExMarkupController {
     })
     this._root.appendChild(this._fileInput)
 
-    this._confirmedPointMarks = new AcExConfirmedPointMarks(
-      this._root,
-      pos => this._confirmedPointMarkScreen(pos)
+    this._confirmedPointMarks = new AcExConfirmedPointMarks(this._root, pos =>
+      this._confirmedPointMarkScreen(pos)
     )
     this._updateVisibilityToolbar()
+
+    this._sessionHistory?.attachMarkup({
+      snapshot: () => this.snapshotRecords(),
+      restore: records => this.restoreRecords(records)
+    })
+  }
+
+  /**
+   * Deep-cloned committed markup records (all layouts) for undo snapshots.
+   */
+  snapshotRecords(): AcExMarkupRecord[] {
+    return structuredClone(this._committed.map(item => item.record))
+  }
+
+  /**
+   * Replace all committed markups from a history snapshot.
+   * Does not itself push a history entry.
+   *
+   * @param records - Markup sidecar records to restore.
+   */
+  restoreRecords(records: AcExMarkupRecord[]): void {
+    this._restoring = true
+    try {
+      this.cancelMode()
+      this._deselect(false)
+      for (const item of [...this._committed]) {
+        this._removeCommitted(item.record.id, false)
+      }
+      for (const record of records) {
+        this._publishRecord(structuredClone(record))
+      }
+      this._updateIdleStatus()
+      this._view.render()
+      this._onStyleChange?.()
+    } finally {
+      this._restoring = false
+    }
+  }
+
+  /** Record an undoable markup mutation when session history is bound. */
+  private _edit(label: string, mutate: () => void): void {
+    if (this._restoring || !this._sessionHistory) {
+      mutate()
+      return
+    }
+    this._sessionHistory.runMarkup(label, mutate)
   }
 
   get isActive(): boolean {
@@ -353,23 +418,41 @@ export class AcExMarkupController {
     color: string
     lineWeight: number
     fontSize: number
+    textHeightMode: 'adaptive' | 'custom'
+    textHeightWcs?: number
   } {
     const selectedId =
       this._selectedIds.size === 1 ? [...this._selectedIds][0] : undefined
     if (selectedId) {
       const record = this._findRecord(selectedId)
       if (record) {
+        const fontSize = record.style.fontSize ?? this._drawFontSize
+        const wcsToScreen = (p: { x: number; y: number }) =>
+          this._wcsToScreenPoint(p)
+        const textHeightWcs =
+          record.style.textHeightWcs != null && record.style.textHeightWcs > 0
+            ? record.style.textHeightWcs
+            : acexScreenPxToWcs(fontSize, wcsToScreen)
         return {
           color: record.style.color || this._drawColor,
           lineWeight: ACEX_MARKUP_LINE_WEIGHT,
-          fontSize: record.style.fontSize ?? this._drawFontSize
+          fontSize,
+          // Editing a committed overlay always presents Custom + world height.
+          textHeightMode: 'custom',
+          textHeightWcs
         }
       }
     }
     return {
       color: this._drawColor,
       lineWeight: ACEX_MARKUP_LINE_WEIGHT,
-      fontSize: this._drawFontSize
+      fontSize: this._drawFontSize,
+      textHeightMode: this._drawTextHeightMode,
+      ...(this._drawTextHeightMode === 'custom' &&
+      this._drawCustomTextHeightWcs != null &&
+      this._drawCustomTextHeightWcs > 0
+        ? { textHeightWcs: this._drawCustomTextHeightWcs }
+        : {})
     }
   }
 
@@ -380,25 +463,54 @@ export class AcExMarkupController {
     color?: string
     lineWeight?: number
     fontSize?: number
+    textHeightMode?: 'adaptive' | 'custom'
+    textHeightWcs?: number
   }): void {
-    if (patch.color) this._drawColor = patch.color
-    if (patch.fontSize != null && patch.fontSize > 0) {
-      this._drawFontSize = patch.fontSize
-    }
-    this._applyStyleToSelection({
-      color: patch.color,
-      fontSize: patch.fontSize
+    this._edit('Edit Markup Style', () => {
+      if (patch.color) this._drawColor = patch.color
+      if (patch.fontSize != null && patch.fontSize > 0) {
+        this._drawFontSize = patch.fontSize
+      }
+      if (patch.textHeightMode === 'adaptive') {
+        this._drawTextHeightMode = 'adaptive'
+        this._drawCustomTextHeightWcs = undefined
+      } else if (
+        patch.textHeightMode === 'custom' ||
+        (patch.textHeightWcs != null && patch.textHeightWcs > 0)
+      ) {
+        this._drawTextHeightMode = 'custom'
+        if (patch.textHeightWcs != null && patch.textHeightWcs > 0) {
+          this._drawCustomTextHeightWcs = patch.textHeightWcs
+        }
+      }
+      this._applyStyleToSelection({
+        color: patch.color,
+        fontSize: patch.fontSize,
+        textHeightMode: patch.textHeightMode,
+        textHeightWcs: patch.textHeightWcs
+      })
+      this._refreshActivePreview()
+      this._syncPlacingStyle()
+      this._onStyleChange?.()
+      this._view.render()
     })
-    this._refreshActivePreview()
-    this._syncPlacingStyle()
-    this._onStyleChange?.()
-    this._view.render()
   }
 
   private _sessionStyle(): AcExMarkupStyle {
-    return this._styleWithWcs(
-      defaultStyle(this._drawColor, ACEX_MARKUP_LINE_WEIGHT, this._drawFontSize)
+    const base = defaultStyle(
+      this._drawColor,
+      ACEX_MARKUP_LINE_WEIGHT,
+      this._drawFontSize
     )
+    return this._styleWithWcs({
+      ...base,
+      textHeightMode: this._drawTextHeightMode,
+      ...(this._drawTextHeightMode === 'custom' &&
+      this._drawCustomTextHeightWcs != null &&
+      this._drawCustomTextHeightWcs > 0
+        ? { textHeightWcs: this._drawCustomTextHeightWcs }
+        : {})
+    })
   }
 
   /** Attach world-space text height and arrow length from the current view. */
@@ -413,11 +525,25 @@ export class AcExMarkupController {
     const arrowSizeWcs =
       style.arrowSizeWcs != null && style.arrowSizeWcs > 0
         ? style.arrowSizeWcs
-        : acExScreenPxToWcs(ACEX_OVERLAY_ARROW_SIZE_PX, wcsToScreen)
+        : acexScreenPxToWcs(ACEX_OVERLAY_ARROW_SIZE_PX, wcsToScreen)
+    let textHeightWcs: number
+    if (
+      style.textHeightMode === 'custom' &&
+      style.textHeightWcs != null &&
+      style.textHeightWcs > 0
+    ) {
+      textHeightWcs = style.textHeightWcs
+    } else if (style.textHeightMode === 'adaptive') {
+      textHeightWcs = acexScreenPxToWcs(fontSize, wcsToScreen)
+    } else if (style.textHeightWcs != null && style.textHeightWcs > 0) {
+      textHeightWcs = style.textHeightWcs
+    } else {
+      textHeightWcs = acexScreenPxToWcs(fontSize, wcsToScreen)
+    }
     return {
       ...rest,
       lineWeight: ACEX_MARKUP_LINE_WEIGHT,
-      textHeightWcs: acExScreenPxToWcs(fontSize, wcsToScreen),
+      textHeightWcs,
       arrowSizeWcs
     }
   }
@@ -458,7 +584,7 @@ export class AcExMarkupController {
     canvas: HTMLCanvasElement,
     strokeWidthWcs?: number
   ): number {
-    return acExScaledCanvasLineWidth(
+    return acexScaledCanvasLineWidth(
       baseLineWidth,
       canvas,
       this._view.getCameraZoom(),
@@ -472,6 +598,8 @@ export class AcExMarkupController {
   private _applyStyleToSelection(patch: {
     color?: string
     fontSize?: number
+    textHeightMode?: 'adaptive' | 'custom'
+    textHeightWcs?: number
   }): void {
     if (this._selectedIds.size === 0) return
     const wcsToScreen = (p: { x: number; y: number }) =>
@@ -483,7 +611,42 @@ export class AcExMarkupController {
       if (patch.color) style.color = patch.color
       style.lineWeight = ACEX_MARKUP_LINE_WEIGHT
       style.strokeWidthWcs = undefined
-      if (patch.fontSize != null && patch.fontSize > 0) {
+
+      const mode =
+        patch.textHeightMode ?? style.textHeightMode ?? 'adaptive'
+      let fontSizeChanged = false
+
+      if (
+        mode === 'custom' &&
+        patch.textHeightWcs != null &&
+        patch.textHeightWcs > 0
+      ) {
+        style.textHeightMode = 'custom'
+        style.textHeightWcs = patch.textHeightWcs
+        if (patch.fontSize != null && patch.fontSize > 0) {
+          style.fontSize = patch.fontSize
+        } else {
+          const perPx = acexScreenPxToWcs(1, wcsToScreen)
+          if (perPx > 0) {
+            style.fontSize = Math.max(
+              1,
+              Math.round(patch.textHeightWcs / perPx)
+            )
+          }
+        }
+        fontSizeChanged = true
+      } else if (mode === 'adaptive' && patch.textHeightMode === 'adaptive') {
+        style.textHeightMode = 'adaptive'
+        if (patch.fontSize != null && patch.fontSize > 0) {
+          style.fontSize = patch.fontSize
+        }
+        const font =
+          style.fontSize != null && style.fontSize > 0
+            ? style.fontSize
+            : ACEX_MARKUP_FONT_SIZE
+        style.textHeightWcs = acexScreenPxToWcs(font, wcsToScreen)
+        fontSizeChanged = true
+      } else if (patch.fontSize != null && patch.fontSize > 0) {
         const prevFont =
           style.fontSize != null && style.fontSize > 0
             ? style.fontSize
@@ -496,25 +659,20 @@ export class AcExMarkupController {
           style.textHeightWcs =
             style.textHeightWcs * (patch.fontSize / prevFont)
         } else {
-          style.textHeightWcs = acExScreenPxToWcs(
-            patch.fontSize,
-            wcsToScreen
-          )
+          style.textHeightWcs = acexScreenPxToWcs(patch.fontSize, wcsToScreen)
         }
         style.fontSize = patch.fontSize
+        fontSizeChanged = true
       }
-      if (patch.fontSize != null) {
-        acExSeedOverlaySizesFromWcs(
-          this._view.getCameraZoom(),
-          wcsToScreen,
-          {
-            textHeightWcs: style.textHeightWcs,
-            fontSizePx: style.fontSize ?? ACEX_MARKUP_FONT_SIZE,
-            strokeScreenPx: acExMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT),
-            elements: item.parts.dom,
-            canvases: item.parts.canvases
-          }
-        )
+
+      if (fontSizeChanged) {
+        acexSeedOverlaySizesFromWcs(this._view.getCameraZoom(), wcsToScreen, {
+          textHeightWcs: style.textHeightWcs,
+          fontSizePx: style.fontSize ?? ACEX_MARKUP_FONT_SIZE,
+          strokeScreenPx: acexMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT),
+          elements: item.parts.dom,
+          canvases: item.parts.canvases
+        })
       }
       item.record.updatedAt = markupNow()
       const color = style.color || ACEX_MARKUP_COLOR
@@ -544,6 +702,7 @@ export class AcExMarkupController {
     placing.badge.style.borderColor = this._drawColor
     placing.badge.style.fontSize = `${this._drawFontSize}px`
     placing.tipDot.style.background = this._drawColor
+    this._syncLiveDomTextHeight(placing.badge)
   }
 
   setMode(mode: AcExMarkupMode | null, toggleOff = true): void {
@@ -571,6 +730,7 @@ export class AcExMarkupController {
     this._mode = null
     this._points = []
     this._lastPointer = null
+    this._livePointer = false
     this._osnapCache = null
     this._awaitingInlineText = false
     this._clearPreview()
@@ -641,14 +801,16 @@ export class AcExMarkupController {
   }
 
   clearAll(): void {
-    this.cancelMode()
-    this._deselect(false)
-    for (const item of [...this._committed]) {
-      this._removeCommitted(item.record.id, false)
-    }
-    this._updateIdleStatus()
-    this._view.render()
-    this._notifyRecordsChanged()
+    this._edit('Clear Markups', () => {
+      this.cancelMode()
+      this._deselect(false)
+      for (const item of [...this._committed]) {
+        this._removeCommitted(item.record.id, false)
+      }
+      this._updateIdleStatus()
+      this._view.render()
+      this._notifyRecordsChanged()
+    })
   }
 
   setVisible(visible: boolean): void {
@@ -710,10 +872,14 @@ export class AcExMarkupController {
     if (this._awaitingInlineText || isAcExMarkupHtmlTextEditing()) {
       return true
     }
+    // End live preview before resolving so a nested render cannot revive the
+    // OSNAP glyph; confirmed picks show the plus mark only.
+    this._livePointer = false
     if (this._placingShapeCallout) {
       this._lastPointer = { x: clientX, y: clientY }
-      const point = this._resolvePointerWithOsnap(clientX, clientY)
+      const point = this._resolvePointerWithOsnap(clientX, clientY, false)
       this._completeShapeCalloutAnchor(point)
+      this._onOsnapMarker(null, null)
       return true
     }
     // While a markup tool is armed, never select/highlight committed overlays —
@@ -721,7 +887,7 @@ export class AcExMarkupController {
     // steal placement clicks. Idle selection uses {@link handleSelectionPointerDown}.
     if (!this._mode) return false
     this._lastPointer = { x: clientX, y: clientY }
-    const point = this._resolvePointerWithOsnap(clientX, clientY)
+    const point = this._resolvePointerWithOsnap(clientX, clientY, false)
 
     let handled = false
     switch (this._mode) {
@@ -750,6 +916,7 @@ export class AcExMarkupController {
         handled = false
         break
     }
+    this._onOsnapMarker(null, null)
     this._syncConfirmedPointMarks()
     return handled
   }
@@ -757,6 +924,7 @@ export class AcExMarkupController {
   handlePointerMove(clientX: number, clientY: number): void {
     if (this._awaitingInlineText || isAcExMarkupHtmlTextEditing()) return
     if (!this._mode && !this._placingShapeCallout) return
+    this._livePointer = true
     this._lastPointer = { x: clientX, y: clientY }
     this._resolvePointerWithOsnap(clientX, clientY)
     this._refreshActivePreview()
@@ -819,16 +987,41 @@ export class AcExMarkupController {
     return this._trySelectCommittedAt(clientX, clientY)
   }
 
+  /**
+   * Replaces markup selection with items whose geometry AABB matches `box`.
+   *
+   * @returns True when selection state changed.
+   */
+  handleSelectionBox(box: AcExExtents, mode: AcExSelectionMode): boolean {
+    if (this._mode || !this._visible) return false
+    const next = new Set<string>()
+    for (const item of this._committed) {
+      if (
+        !isMarkupOnLayout(item.record.layoutId, this._getActiveLayoutId?.())
+      ) {
+        continue
+      }
+      const bounds = acexMarkupBounds(item.record.geometry)
+      if (!bounds) continue
+      if (acexExtentsMatchBox(bounds, box, mode)) {
+        next.add(item.record.id)
+      }
+    }
+    return this._replaceSelection(next)
+  }
+
   deleteSelected(): void {
     if (this._selectedIds.size === 0) return
-    for (const id of [...this._selectedIds]) {
-      this._removeCommitted(id, false)
-    }
-    this._selectedIds.clear()
-    this._onStyleChange?.()
-    this._updateIdleStatus()
-    this._view.render()
-    this._notifyRecordsChanged()
+    this._edit('Delete Markup', () => {
+      for (const id of [...this._selectedIds]) {
+        this._removeCommitted(id, false)
+      }
+      this._selectedIds.clear()
+      this._onStyleChange?.()
+      this._updateIdleStatus()
+      this._view.render()
+      this._notifyRecordsChanged()
+    })
   }
 
   /** Committed markup records on the current drawing (all layouts). */
@@ -870,12 +1063,10 @@ export class AcExMarkupController {
     const item = this._committed.find(entry => entry.record.id === id)
     if (!item) return false
     const rects = item.parts.dom
-      .filter(
-        el => !el.classList.contains('mlcad-markup-dot') && !el.hidden
-      )
+      .filter(el => !el.classList.contains('mlcad-markup-dot') && !el.hidden)
       .map(el => el.getBoundingClientRect())
       .filter(rect => rect.width > 0 || rect.height > 0)
-    const extents = acExMarkupFocusExtents(
+    const extents = acexMarkupFocusExtents(
       item.record.geometry,
       rects,
       (clientX, clientY) => this._clientToWorld(clientX, clientY)
@@ -895,27 +1086,31 @@ export class AcExMarkupController {
   ): void {
     const item = this._committed.find(entry => entry.record.id === id)
     if (!item) return
-    const next: AcExMarkupRecord = {
-      ...item.record,
-      ...patch,
-      updatedAt: markupNow()
-    }
-    if (patch.text !== undefined) {
-      this._rebuildRecord(next)
-    } else {
-      item.record.comment = next.comment
-      item.record.status = next.status as AcExMarkupStatus
-      item.record.updatedAt = next.updatedAt
-    }
-    this._notifyRecordsChanged()
+    this._edit('Edit Markup', () => {
+      const next: AcExMarkupRecord = {
+        ...item.record,
+        ...patch,
+        updatedAt: markupNow()
+      }
+      if (patch.text !== undefined) {
+        this._rebuildRecord(next)
+      } else {
+        item.record.comment = next.comment
+        item.record.status = next.status as AcExMarkupStatus
+        item.record.updatedAt = next.updatedAt
+      }
+      this._notifyRecordsChanged()
+    })
   }
 
   /** Remove one committed markup. */
   removeMarkup(id: string): void {
-    this._removeCommitted(id, true)
-    this._onStyleChange?.()
-    this._view.render()
-    this._notifyRecordsChanged()
+    this._edit('Delete Markup', () => {
+      this._removeCommitted(id, true)
+      this._onStyleChange?.()
+      this._view.render()
+      this._notifyRecordsChanged()
+    })
   }
 
   private _notifyRecordsChanged(): void {
@@ -933,7 +1128,7 @@ export class AcExMarkupController {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = acExMarkupSidecarFileName(this._drawingName)
+    a.download = acexMarkupSidecarFileName(this._drawingName)
     a.click()
     URL.revokeObjectURL(url)
     this._statusEl.textContent = this._i18n.t('status.markupExported', {
@@ -948,13 +1143,19 @@ export class AcExMarkupController {
 
   /** Replace all markups from a parsed sidecar (used by tests / import). */
   loadSidecar(file: AcExMarkupSidecarFile): void {
-    this.clearAll()
-    for (const record of file.markups) {
-      this._publishRecord(record)
-    }
-    this._updateIdleStatus()
-    this._view.render()
-    this._notifyRecordsChanged()
+    this._edit('Import Markups', () => {
+      this.cancelMode()
+      this._deselect(false)
+      for (const item of [...this._committed]) {
+        this._removeCommitted(item.record.id, false)
+      }
+      for (const record of file.markups) {
+        this._publishRecord(record)
+      }
+      this._updateIdleStatus()
+      this._view.render()
+      this._notifyRecordsChanged()
+    })
   }
 
   private async _handleImportFile(): Promise<void> {
@@ -1023,7 +1224,7 @@ export class AcExMarkupController {
     if (this._points.length === 0) {
       const hit = this._pickAttachableShapeAt(clientX, clientY)
       if (hit) {
-        const outline = acExMarkupShapeOutlineFromGeometry(hit.record.geometry)
+        const outline = acexMarkupShapeOutlineFromGeometry(hit.record.geometry)
         if (outline) {
           this._beginPlacingShapeCallout(outline, {
             existingId: hit.record.id,
@@ -1050,9 +1251,9 @@ export class AcExMarkupController {
       ) {
         continue
       }
-      if (!acExIsAttachableShapeMarkup(item.record.geometry)) continue
+      if (!acexIsAttachableShapeMarkup(item.record.geometry)) continue
       if (
-        acExHitTestMarkupShapeOutline(
+        acexHitTestMarkupShapeOutline(
           item.record.geometry,
           clientX,
           clientY,
@@ -1143,20 +1344,20 @@ export class AcExMarkupController {
     const tipDot = this._makeTempDot(tip, this._drawColor)
     this._statusEl.textContent = this._i18n.t('status.markupTextEditHint')
     const paintLeader = () => {
-      const ctx = acExFitMarkupCanvas(this._previewCanvas, this._root)
+      const ctx = acexFitMarkupCanvas(this._previewCanvas, this._root)
       if (!ctx) return
       const tipS = this._worldToOverlay(tip)
       const anchorS = this._worldToOverlay(anchor)
-      const baseWidth = acExMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT)
+      const baseWidth = acexMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT)
       const scaled = this._scaledCanvasLineWidth(baseWidth, ctx.canvas)
-      acExDrawMarkupLeader(
+      acexDrawMarkupLeader(
         ctx,
         tipS,
         anchorS,
         this._drawColor,
         true,
         scaled,
-        acExOverlayArrowSize(scaled, baseWidth)
+        acexOverlayArrowSize(scaled, baseWidth)
       )
     }
     paintLeader()
@@ -1192,7 +1393,7 @@ export class AcExMarkupController {
             x: Math.max(outline.corner1.x, outline.corner2.x) + 1,
             y: (outline.corner1.y + outline.corner2.y) / 2
           })
-    const tip = acExComputeLeaderTipOnShape(outline, toward)
+    const tip = acexComputeLeaderTipOnShape(outline, toward)
     const anchor = { ...toward }
     const badge = this._makeTempBadge(anchor, '', this._drawColor)
     const tipDot = this._makeTempDot(tip, this._drawColor)
@@ -1204,6 +1405,8 @@ export class AcExMarkupController {
       tipDot,
       existingId: options?.existingId
     }
+    // Capsule / tip wait for the next live cursor (3rd-point capture / loupe).
+    this._setPlacingCalloutChromeVisible(false)
     this._statusEl.textContent = this._i18n.t('status.markupShapeCalloutHint')
     this._syncGripPointerEvents()
     this._refreshActivePreview()
@@ -1214,13 +1417,15 @@ export class AcExMarkupController {
     const placing = this._placingShapeCallout
     if (!placing || this._awaitingInlineText) return
     const anchor = point2(anchorPoint)
-    const tip = acExComputeLeaderTipOnShape(placing.outline, anchor)
+    const tip = acexComputeLeaderTipOnShape(placing.outline, anchor)
     placing.tip = tip
     placing.anchor = anchor
     placing.badge.dataset.wcsX = String(anchor.x)
     placing.badge.dataset.wcsY = String(anchor.y)
     placing.tipDot.dataset.wcsX = String(tip.x)
     placing.tipDot.dataset.wcsY = String(tip.y)
+    // Text edit needs the capsule visible even without a live cursor.
+    this._setPlacingCalloutChromeVisible(true)
     this._positionTempDom(placing.badge)
     this._positionTempDom(placing.tipDot)
     this._refreshActivePreview()
@@ -1248,7 +1453,11 @@ export class AcExMarkupController {
           text || undefined
         )
       } else {
-        this._commitShapeWithCallout(placing.outline, callout, text || undefined)
+        this._commitShapeWithCallout(
+          placing.outline,
+          callout,
+          text || undefined
+        )
       }
       this._finishPlacingShapeCallout(false)
       this.cancelMode()
@@ -1310,15 +1519,17 @@ export class AcExMarkupController {
     const item = this._committed.find(c => c.record.id === id)
     if (!item) return
     const g = item.record.geometry
-    if (!acExIsAttachableShapeMarkup(g)) return
+    if (!acexIsAttachableShapeMarkup(g)) return
     if (g.type !== 'cloud' && g.type !== 'rect' && g.type !== 'circle') return
-    const next: AcExMarkupRecord = {
-      ...item.record,
-      text,
-      updatedAt: markupNow(),
-      geometry: { ...g, callout }
-    }
-    this._rebuildRecord(next)
+    this._edit('Edit Markup', () => {
+      const next: AcExMarkupRecord = {
+        ...item.record,
+        text,
+        updatedAt: markupNow(),
+        geometry: { ...g, callout }
+      }
+      this._rebuildRecord(next)
+    })
   }
 
   /** Replace visuals for an existing markup, preserving z-order. */
@@ -1365,7 +1576,7 @@ export class AcExMarkupController {
     color: string
   ): HTMLElement {
     const badge = document.createElement('div')
-    badge.className = 'mlcad-markup-badge'
+    badge.className = 'mlcad-markup-badge mlcad-markup-badge--preview'
     badge.dataset.wcsX = String(wcs.x)
     badge.dataset.wcsY = String(wcs.y)
     badge.textContent = text
@@ -1375,6 +1586,7 @@ export class AcExMarkupController {
     // Must not intercept canvas clicks while placing the leader anchor.
     badge.style.pointerEvents = 'none'
     this._overlayLayer.appendChild(badge)
+    this._syncLiveDomTextHeight(badge)
     this._positionTempDom(badge)
     return badge
   }
@@ -1397,7 +1609,7 @@ export class AcExMarkupController {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return
     const rootRect = this._overlayRootRect ?? this._root.getBoundingClientRect()
     const screen = this._view.wcsToScreen(new THREE.Vector2(x, y))
-    acExPositionWcsOverlay(el, screen, rootRect, this._view.getCameraZoom())
+    acexPositionWcsOverlay(el, screen, rootRect, this._view.getCameraZoom())
   }
 
   private _commitGeometry(
@@ -1405,22 +1617,24 @@ export class AcExMarkupController {
     geometry: AcExMarkupGeometry,
     text?: string
   ): void {
-    const now = markupNow()
-    const record: AcExMarkupRecord = {
-      id: createMarkupId(),
-      type,
-      layoutId: this._getActiveLayoutId?.(),
-      style: this._sessionStyle(),
-      text,
-      comment: '',
-      status: 'open',
-      author: '',
-      createdAt: now,
-      updatedAt: now,
-      geometry
-    }
-    this._publishRecord(record)
-    this._view.render()
+    this._edit('Add Markup', () => {
+      const now = markupNow()
+      const record: AcExMarkupRecord = {
+        id: createMarkupId(),
+        type,
+        layoutId: this._getActiveLayoutId?.(),
+        style: this._sessionStyle(),
+        text,
+        comment: '',
+        status: 'open',
+        author: '',
+        createdAt: now,
+        updatedAt: now,
+        geometry
+      }
+      this._publishRecord(record)
+      this._view.render()
+    })
   }
 
   private _publishRecord(record: AcExMarkupRecord): void {
@@ -1433,14 +1647,14 @@ export class AcExMarkupController {
     // Push before building visuals so the initial redraw can resolve the record.
     this._committed.push({ record, parts })
     this._buildVisuals(record, parts)
-    acExSeedOverlaySizesFromWcs(
+    acexSeedOverlaySizesFromWcs(
       this._view.getCameraZoom(),
       p => this._wcsToScreenPoint(p),
       {
         textHeightWcs: record.style.textHeightWcs,
         arrowSizeWcs: record.style.arrowSizeWcs,
         fontSizePx: record.style.fontSize ?? ACEX_MARKUP_FONT_SIZE,
-        strokeScreenPx: acExMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT),
+        strokeScreenPx: acexMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT),
         elements: parts.dom,
         canvases: parts.canvases
       }
@@ -1465,13 +1679,13 @@ export class AcExMarkupController {
 
     const redraw = () => {
       const live = this._findRecord(markupId) ?? record
-      const ctx = acExFitMarkupCanvas(canvas, this._root)
+      const ctx = acexFitMarkupCanvas(canvas, this._root)
       if (!ctx) return
       this._strokeGeometry(
         ctx,
         live.geometry,
         live.style.color || ACEX_MARKUP_COLOR,
-        acExMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT),
+        acexMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT),
         undefined,
         true,
         live.style.arrowSizeWcs
@@ -1557,7 +1771,7 @@ export class AcExMarkupController {
       g.type === 'rect' ||
       g.type === 'circle'
     ) {
-      const center = acExMarkupCenter(record)
+      const center = acexMarkupCenter(record)
       if (center) {
         centerDot = this._makeDot(center, color, markupId)
         parts.dom.push(centerDot)
@@ -1630,8 +1844,24 @@ export class AcExMarkupController {
   private _placeDomAt(el: HTMLElement, wcs: AcExMarkupPoint2d): void {
     el.dataset.wcsX = String(wcs.x)
     el.dataset.wcsY = String(wcs.y)
-    if (!acExIsOverlayGrip(el)) acExResetOverlayViewScale(el)
+    if (el.classList.contains('mlcad-markup-badge--preview')) {
+      this._syncLiveDomTextHeight(el)
+    }
     this._positionTempDom(el)
+  }
+
+  /** Apply session text-height mode to a live preview badge. */
+  private _syncLiveDomTextHeight(el: HTMLElement): void {
+    acexSyncLiveOverlayTextHeight(
+      this._view.getCameraZoom(),
+      p => this._wcsToScreenPoint(p),
+      el,
+      {
+        fontSize: this._drawFontSize,
+        textHeightMode: this._drawTextHeightMode,
+        textHeightWcs: this._drawCustomTextHeightWcs
+      }
+    )
   }
 
   /**
@@ -1671,6 +1901,7 @@ export class AcExMarkupController {
     const record = this._findRecord(id)
     if (!record) return
     record.updatedAt = markupNow()
+    this._sessionHistory?.commitMarkupCapture('Edit Markup')
   }
 
   private _bindGrips(options: {
@@ -1701,6 +1932,7 @@ export class AcExMarkupController {
     const clientToWorldOsnap = (x: number, y: number) =>
       this._clientToWorldWithOsnap(x, y)
     const onSelect = () => this._selectOnly(id)
+    const onGripDragStart = () => this._sessionHistory?.beginMarkupCapture()
 
     const shapeOutline = (): AcExMarkupShapeOutline | null => {
       const record = this._findRecord(id)
@@ -1719,7 +1951,7 @@ export class AcExMarkupController {
       if (!centerDot) return
       const record = this._findRecord(id)
       if (!record) return
-      const center = acExMarkupCenter(record)
+      const center = acexMarkupCenter(record)
       if (center) this._placeDomAt(centerDot, center)
     }
 
@@ -1740,12 +1972,14 @@ export class AcExMarkupController {
     // Text / stamp: drag badge to move position.
     if (badge && (geometryType === 'text' || geometryType === 'stamp')) {
       cleanups.push(
-        acExBindMarkupPointerDrag({
+        acexBindMarkupPointerDrag({
           el: badge,
           clientToWorld,
+          showSnapLoupe: false,
           isEnabled,
           cursor: 'move',
           onPointerDown: onSelect,
+          onDragStart: onGripDragStart,
           onMove: world => {
             const record = this._findRecord(id)
             if (!record) return
@@ -1767,11 +2001,12 @@ export class AcExMarkupController {
     // Standalone callout or shape-attached callout: tip + bubble.
     if (badge && tipDot && (geometryType === 'callout' || hasAttachedCallout)) {
       cleanups.push(
-        acExBindMarkupPointerDrag({
+        acexBindMarkupPointerDrag({
           el: tipDot,
           clientToWorld: clientToWorldOsnap,
           isEnabled,
           onPointerDown: onSelect,
+          onDragStart: onGripDragStart,
           onMove: world => {
             const record = this._findRecord(id)
             if (!record) return
@@ -1784,7 +2019,7 @@ export class AcExMarkupController {
             ) {
               const outline = shapeOutline()
               if (!outline || !g.callout) return
-              tip = acExComputeLeaderTipOnShape(outline, world)
+              tip = acexComputeLeaderTipOnShape(outline, world)
               g.callout.tip.x = tip.x
               g.callout.tip.y = tip.y
             } else if (g.type === 'callout') {
@@ -1801,12 +2036,14 @@ export class AcExMarkupController {
         })
       )
       cleanups.push(
-        acExBindMarkupPointerDrag({
+        acexBindMarkupPointerDrag({
           el: badge,
           clientToWorld,
+          showSnapLoupe: false,
           isEnabled,
           cursor: 'move',
           onPointerDown: onSelect,
+          onDragStart: onGripDragStart,
           onMove: world => {
             const record = this._findRecord(id)
             if (!record) return
@@ -1841,11 +2078,12 @@ export class AcExMarkupController {
       (geometryType === 'arrow' || geometryType === 'line')
     ) {
       cleanups.push(
-        acExBindMarkupPointerDrag({
+        acexBindMarkupPointerDrag({
           el: startDot,
           clientToWorld: clientToWorldOsnap,
           isEnabled,
           onPointerDown: onSelect,
+          onDragStart: onGripDragStart,
           onMove: world => {
             const record = this._findRecord(id)
             if (!record) return
@@ -1860,11 +2098,12 @@ export class AcExMarkupController {
         })
       )
       cleanups.push(
-        acExBindMarkupPointerDrag({
+        acexBindMarkupPointerDrag({
           el: endDot,
           clientToWorld: clientToWorldOsnap,
           isEnabled,
           onPointerDown: onSelect,
+          onDragStart: onGripDragStart,
           onMove: world => {
             const record = this._findRecord(id)
             if (!record) return
@@ -1895,24 +2134,26 @@ export class AcExMarkupController {
       let originGeom: AcExMarkupGeometry | null = null
       let originCenter: AcExMarkupPoint2d | null = null
       cleanups.push(
-        acExBindMarkupPointerDrag({
+        acexBindMarkupPointerDrag({
           el: centerDot,
           clientToWorld: snapCenter ? clientToWorldOsnap : clientToWorld,
+          showSnapLoupe: snapCenter,
           isEnabled,
           cursor: 'move',
           onPointerDown: onSelect,
           onDragStart: () => {
+            onGripDragStart()
             const record = this._findRecord(id)
             if (!record) return
             originGeom = structuredClone(record.geometry)
-            originCenter = acExMarkupCenter(record)
+            originCenter = acexMarkupCenter(record)
           },
           onMove: world => {
             const record = this._findRecord(id)
             if (!record || !originGeom || !originCenter) return
             const dx = world.x - originCenter.x
             const dy = world.y - originCenter.y
-            record.geometry = acExTranslateMarkupGeometry(originGeom, dx, dy)
+            record.geometry = acexTranslateMarkupGeometry(originGeom, dx, dy)
             syncAttachedDom(record.geometry)
             this._placeDomAt(centerDot, world)
             redraw()
@@ -1937,7 +2178,7 @@ export class AcExMarkupController {
     id: string
   ): HTMLElement {
     const dot = document.createElement('div')
-    dot.className = acExOverlayGripClassName('markup')
+    dot.className = acexOverlayGripClassName('markup')
     dot.dataset.markupId = id
     dot.dataset.wcsX = String(wcs.x)
     dot.dataset.wcsY = String(wcs.y)
@@ -1989,18 +2230,18 @@ export class AcExMarkupController {
         ctx.lineTo(b.x, b.y)
         ctx.stroke()
         if (g.type === 'arrow') {
-          acExDrawMarkupArrowHead(
+          acexDrawMarkupArrowHead(
             ctx,
             a,
             b,
             color,
             scaleArrowsWithView
-              ? acExScaledOverlayArrowSize(
+              ? acexScaledOverlayArrowSize(
                   ctx.canvas,
                   worldToScreen,
                   arrowSizeWcs
                 )
-              : acExOverlayArrowSize(strokeWidth, lineWidth)
+              : acexOverlayArrowSize(strokeWidth, lineWidth)
           )
         }
         break
@@ -2051,7 +2292,7 @@ export class AcExMarkupController {
         break
       }
       case 'cloud': {
-        acExStrokeMarkupCloud(
+        acexStrokeMarkupCloud(
           ctx,
           g.corner1,
           g.corner2,
@@ -2066,7 +2307,7 @@ export class AcExMarkupController {
       case 'callout': {
         const tip = worldToScreen(g.tip)
         const anchor = worldToScreen(g.anchor)
-        acExDrawMarkupLeader(
+        acexDrawMarkupLeader(
           ctx,
           tip,
           anchor,
@@ -2074,12 +2315,12 @@ export class AcExMarkupController {
           true,
           strokeWidth,
           scaleArrowsWithView
-            ? acExScaledOverlayArrowSize(
+            ? acexScaledOverlayArrowSize(
                 ctx.canvas,
                 worldToScreen,
                 arrowSizeWcs
               )
-            : acExOverlayArrowSize(strokeWidth, lineWidth)
+            : acexOverlayArrowSize(strokeWidth, lineWidth)
         )
         break
       }
@@ -2098,7 +2339,7 @@ export class AcExMarkupController {
     const tip = this._worldToOverlay(callout.tip)
     const anchor = this._worldToOverlay(callout.anchor)
     // Shape-attached leaders have no arrowhead (Design Review).
-    acExDrawMarkupLeader(ctx, tip, anchor, color, false, lineWidth)
+    acexDrawMarkupLeader(ctx, tip, anchor, color, false, lineWidth)
   }
 
   private _editText(id: string, badge: HTMLElement): void {
@@ -2127,6 +2368,7 @@ export class AcExMarkupController {
     }).then(next => {
       this._syncGripPointerEvents()
       if (next === undefined || next === current) return
+      this._sessionHistory?.beginMarkupCapture()
       item.record.updatedAt = markupNow()
       if (attached) {
         attached.text = next || undefined
@@ -2138,6 +2380,7 @@ export class AcExMarkupController {
         next.trim() || this._i18n.t('status.markupDefaultLabel')
       this._view.render()
       this._notifyRecordsChanged()
+      this._sessionHistory?.commitMarkupCapture('Edit Markup')
     })
   }
 
@@ -2238,7 +2481,7 @@ export class AcExMarkupController {
         }
       }
       if (
-        acExHitTestMarkup(
+        acexHitTestMarkup(
           item.record,
           clientX,
           clientY,
@@ -2262,6 +2505,28 @@ export class AcExMarkupController {
       this._view.render()
     }
     this._notifyRecordsChanged()
+  }
+
+  /**
+   * Replaces the current markup selection with `next`.
+   *
+   * @returns True when the selected id set changed.
+   */
+  private _replaceSelection(next: Set<string>): boolean {
+    if (
+      next.size === this._selectedIds.size &&
+      [...next].every(id => this._selectedIds.has(id))
+    ) {
+      return false
+    }
+    this._selectedIds.clear()
+    for (const id of next) this._selectedIds.add(id)
+    this._applySelectionStyles()
+    this._onStyleChange?.()
+    this._updateIdleStatus()
+    this._view.render()
+    this._notifyRecordsChanged()
+    return true
   }
 
   private _applySelectionStyles(): void {
@@ -2298,7 +2563,7 @@ export class AcExMarkupController {
         const y = Number(el.dataset.wcsY)
         if (!Number.isFinite(x) || !Number.isFinite(y)) continue
         const screen = this._view.wcsToScreen(new THREE.Vector2(x, y))
-        acExPositionWcsOverlay(el, screen, rootRect, zoom)
+        acexPositionWcsOverlay(el, screen, rootRect, zoom)
       }
     }
     const placing = this._placingShapeCallout
@@ -2310,7 +2575,8 @@ export class AcExMarkupController {
 
   private _resolvePointerWithOsnap(
     clientX: number,
-    clientY: number
+    clientY: number,
+    showMarker: boolean = true
   ): THREE.Vector2 {
     const cacheKey = this._view.getSnapCacheKey()
     if (
@@ -2319,14 +2585,16 @@ export class AcExMarkupController {
       this._osnapCache.clientY === clientY &&
       this._osnapCache.cacheKey === cacheKey
     ) {
-      const snap = this._osnapCache.snap
-      if (snap) {
-        this._onOsnapMarker(
-          snap,
-          this._view.wcsToScreen(this._osnapCache.point)
-        )
-      } else {
-        this._onOsnapMarker(null, null)
+      if (showMarker) {
+        const snap = this._osnapCache.snap
+        if (snap) {
+          this._onOsnapMarker(
+            snap,
+            this._view.wcsToScreen(this._osnapCache.point)
+          )
+        } else {
+          this._onOsnapMarker(null, null)
+        }
       }
       return this._osnapCache.point
     }
@@ -2348,10 +2616,12 @@ export class AcExMarkupController {
       point: point.clone(),
       snap: resolved.snap
     }
-    if (resolved.snap) {
-      this._onOsnapMarker(resolved.snap, this._view.wcsToScreen(point))
-    } else {
-      this._onOsnapMarker(null, null)
+    if (showMarker) {
+      if (resolved.snap) {
+        this._onOsnapMarker(resolved.snap, this._view.wcsToScreen(point))
+      } else {
+        this._onOsnapMarker(null, null)
+      }
     }
     return point
   }
@@ -2360,7 +2630,8 @@ export class AcExMarkupController {
     if (this._awaitingInlineText || isAcExMarkupHtmlTextEditing()) {
       // Keep frozen shape+leader visible while typing after anchor is placed.
       if (this._placingShapeCallout) {
-        this._paintPlacingShapeCalloutPreview(this._placingShapeCallout)
+        this._setPlacingCalloutChromeVisible(true)
+        this._paintPlacingShapeCalloutPreview(this._placingShapeCallout, true)
       }
       return
     }
@@ -2374,22 +2645,40 @@ export class AcExMarkupController {
     }
 
     if (this._placingShapeCallout) {
+      const placing = this._placingShapeCallout
+      if (!this._livePointer) {
+        // After the shape’s second point: keep the outline, hide capsule/leader
+        // until the callout anchor is being captured.
+        this._onOsnapMarker(null, null)
+        this._setPlacingCalloutChromeVisible(false)
+        this._paintPlacingShapeCalloutPreview(placing, false)
+        return
+      }
       const cursor = this._resolvePointerWithOsnap(
         this._lastPointer.x,
         this._lastPointer.y
       )
-      const placing = this._placingShapeCallout
       const anchor = point2(cursor)
-      const tip = acExComputeLeaderTipOnShape(placing.outline, anchor)
+      const tip = acexComputeLeaderTipOnShape(placing.outline, anchor)
       placing.tip = tip
       placing.anchor = anchor
       placing.badge.dataset.wcsX = String(anchor.x)
       placing.badge.dataset.wcsY = String(anchor.y)
       placing.tipDot.dataset.wcsX = String(tip.x)
       placing.tipDot.dataset.wcsY = String(tip.y)
+      this._setPlacingCalloutChromeVisible(true)
       this._positionTempDom(placing.badge)
       this._positionTempDom(placing.tipDot)
-      this._paintPlacingShapeCalloutPreview(placing)
+      this._paintPlacingShapeCalloutPreview(placing, true)
+      return
+    }
+
+    // Rubber-band only while the pointer is live (no preview glued to the
+    // last committed vertex after finger/button up). Drop the OSNAP glyph so
+    // only confirmed plus marks remain until the next live sample.
+    if (!this._livePointer) {
+      this._onOsnapMarker(null, null)
+      this._clearPreview()
       return
     }
 
@@ -2397,10 +2686,10 @@ export class AcExMarkupController {
       this._lastPointer.x,
       this._lastPointer.y
     )
-    const ctx = acExFitMarkupCanvas(this._previewCanvas, this._root)
+    const ctx = acexFitMarkupCanvas(this._previewCanvas, this._root)
     if (!ctx) return
     const color = this._drawColor
-    const lineWidth = acExMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT)
+    const lineWidth = acexMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT)
 
     if (this._points.length === 0) return
     const a = this._points[0]!
@@ -2421,7 +2710,7 @@ export class AcExMarkupController {
         lineWidth
       )
     } else if (this._mode === 'cloud') {
-      acExStrokeMarkupCloud(
+      acexStrokeMarkupCloud(
         ctx,
         point2(a),
         point2(b),
@@ -2442,25 +2731,26 @@ export class AcExMarkupController {
       const tip = this._worldToOverlay(point2(a))
       const anchor = this._worldToOverlay(point2(b))
       const scaled = this._scaledCanvasLineWidth(lineWidth, ctx.canvas)
-      acExDrawMarkupLeader(
+      acexDrawMarkupLeader(
         ctx,
         tip,
         anchor,
         color,
         true,
         scaled,
-        acExOverlayArrowSize(scaled, lineWidth)
+        acexOverlayArrowSize(scaled, lineWidth)
       )
     }
   }
 
   private _paintPlacingShapeCalloutPreview(
-    placing: AcExPlacingShapeCallout
+    placing: AcExPlacingShapeCallout,
+    withLeader: boolean
   ): void {
-    const ctx = acExFitMarkupCanvas(this._previewCanvas, this._root)
+    const ctx = acexFitMarkupCanvas(this._previewCanvas, this._root)
     if (!ctx) return
     const color = this._drawColor
-    const lineWidth = acExMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT)
+    const lineWidth = acexMarkupCanvasLineWidth(ACEX_MARKUP_LINE_WEIGHT)
     const outline = placing.outline
     // Existing shape is already committed; only preview the new leader.
     if (!placing.existingId) {
@@ -2476,7 +2766,7 @@ export class AcExMarkupController {
           lineWidth
         )
       } else if (outline.kind === 'cloud') {
-        acExStrokeMarkupCloud(
+        acexStrokeMarkupCloud(
           ctx,
           outline.corner1,
           outline.corner2,
@@ -2498,9 +2788,10 @@ export class AcExMarkupController {
         )
       }
     }
+    if (!withLeader) return
     const tip = this._worldToOverlay(placing.tip)
     const anchor = this._worldToOverlay(placing.anchor)
-    acExDrawMarkupLeader(
+    acexDrawMarkupLeader(
       ctx,
       tip,
       anchor,
@@ -2510,8 +2801,17 @@ export class AcExMarkupController {
     )
   }
 
+  /** Shows or hides the temporary callout capsule / tip while placing. */
+  private _setPlacingCalloutChromeVisible(visible: boolean): void {
+    const placing = this._placingShapeCallout
+    if (!placing) return
+    const value = visible ? 'visible' : 'hidden'
+    placing.badge.style.visibility = value
+    placing.tipDot.style.visibility = value
+  }
+
   private _clearPreview(): void {
-    const ctx = acExFitMarkupCanvas(this._previewCanvas, this._root)
+    const ctx = acexFitMarkupCanvas(this._previewCanvas, this._root)
     if (ctx) {
       // already cleared by fit
     }
@@ -2572,8 +2872,8 @@ export class AcExMarkupController {
     // Tooltip stays action-oriented (click to hide / show).
     const titleKey = this._visible ? 'toolbar.markupHide' : 'toolbar.markupShow'
     const icon = this._visible
-      ? acExHtmlIcons.markupShow
-      : acExHtmlIcons.markupHide
+      ? AcExHtmlIcons.markupShow
+      : AcExHtmlIcons.markupHide
     const label = this._i18n.t(titleKey)
     buttons.forEach(btn => {
       btn.classList.toggle('active', this._visible)

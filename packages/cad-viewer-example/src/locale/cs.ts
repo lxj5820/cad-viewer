@@ -65,6 +65,18 @@ export default {
       curveHigh: 'Kvalita',
       curveHighHint: 'Hladší křivky, více paměti',
 
+      paperSpaceBackground: 'Pozadí výkresového prostoru',
+      paperSpaceWhite: 'Bílé',
+      paperSpaceWhiteHint: 'Desktop CAD / náhled tisku',
+      paperSpaceBlack: 'Černé',
+      paperSpaceBlackHint: 'Preferované pro webový prohlížeč',
+
+      export: 'Export',
+      exportEnable: 'Povolit',
+      exportEnableHint: 'Povolit export DXF/HTML/PDF/SVG/PNG',
+      exportDisable: 'Zakázat',
+      exportDisableHint: 'Skrýt příkazy exportu a položky nabídky File',
+
       invalidFileType:
         'Neplatný typ souboru. Nahrajte soubory DWG nebo DXF.'
     }

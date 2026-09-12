@@ -163,6 +163,11 @@ function parseRecord(raw: unknown): AcExMarkupRecord | undefined {
         typeof raw.style.fontSize === 'number' && raw.style.fontSize > 0
           ? raw.style.fontSize
           : undefined,
+      textHeightMode:
+        raw.style.textHeightMode === 'custom' ||
+        raw.style.textHeightMode === 'adaptive'
+          ? raw.style.textHeightMode
+          : undefined,
       textHeightWcs: parsePositiveNumber(raw.style.textHeightWcs),
       arrowSizeWcs: parsePositiveNumber(raw.style.arrowSizeWcs)
     },
@@ -236,9 +241,9 @@ export function stringifyAcExMarkupSidecar(
 
 /**
  * Suggested sidecar file name for a drawing.
- * @example acExMarkupSidecarFileName('plan.dwg') → 'plan.markup.json'
+ * @example acexMarkupSidecarFileName('plan.dwg') → 'plan.markup.json'
  */
-export function acExMarkupSidecarFileName(drawingName?: string): string {
+export function acexMarkupSidecarFileName(drawingName?: string): string {
   if (!drawingName) return 'drawing.markup.json'
   const base = drawingName.replace(/\.(dwg|dxf|html)$/i, '')
   return `${base}.markup.json`

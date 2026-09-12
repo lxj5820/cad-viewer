@@ -5,16 +5,16 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 
+import { decodeChunkGzip } from './AcExChunkBinaryCodec'
 import {
   AcExCommandSessionPanel,
   type AcExCommandSessionUiState
 } from './AcExCommandSessionPanel'
 import {
-  acExCssRectToWcsBox,
-  acExCssTopLeftRectToGl,
-  acExIntersectCssRects,
-  acExWcsBoxToCssRect
+  acexCssTopLeftRectToGl,
+  acexWcsBoxToCssRect
 } from './AcExCssRect'
+import { acexSetDocsBaseUrl } from './AcExDocsUrl'
 import {
   decryptAcExHtmlSnapshotPayload,
   isAcExHtmlAccessExpired,
@@ -27,30 +27,54 @@ import {
   showAcExHtmlAccessExpired
 } from './AcExHtmlAccessGate'
 import {
-  acExHtmlIsPhoneLayout,
+  acexHtmlIsPhoneLayout,
   setupAcExHtmlDrawerSheets
 } from './AcExHtmlDrawerSheet'
 import { setupAcExHtmlExpiryMonitor } from './AcExHtmlExpiryUi'
 import { AcExHtmlI18n, detectAcExHtmlLocale } from './AcExHtmlI18n'
-import { acExHtmlIcons } from './AcExHtmlIcons'
-import { setupAcExHtmlLayoutMenu } from './AcExHtmlLayoutMenu'
+import { AcExHtmlIcons } from './AcExHtmlIcons'
+import {
+  type AcExHtmlMainToolbarController,
+  setupAcExHtmlMainToolbar} from './AcExHtmlMainToolbar'
 import { setupAcExHtmlMeasurePanel } from './AcExHtmlMeasurePanel'
 import { setupAcExHtmlMeasureSettings } from './AcExHtmlMeasureSettings'
 import { setupAcExHtmlNavTools } from './AcExHtmlNavTools'
-import { setupAcExHtmlReviewPanel } from './AcExHtmlReviewPanel'
 import {
-  setAcExHtmlParentChildIcon,
-  setupAcExHtmlToolbarFlyouts
-} from './AcExHtmlToolbarFlyout'
+  acexGlobalFetch,
+  chooseInitialManifestHref,
+  probePackageManifest,
+  resolveViewerManifestUrl
+} from './AcExHtmlPackageBootstrap'
+import { promptAcExHtmlPackageSource } from './AcExHtmlPackageSourceGate'
+import { setupAcExHtmlReviewPanel } from './AcExHtmlReviewPanel'
+import { acexSyncHtmlShortCutSelection } from './AcExHtmlShortCutSelection'
+import { setupAcExHtmlShortCutToolbar } from './AcExHtmlShortCutToolbar'
+import {
+  type AcExIdlePointerHost,
+  acexIdlePointerStrategy
+} from './AcExIdlePointerStrategy'
 import {
   computeLayerExtentsMap,
   resolveLayoutViewExtents
 } from './AcExLayerExtents'
-import { AcExMarkupController, type AcExMarkupMode } from './AcExMarkup'
-import { AcExMeasureController, type AcExMeasureMode } from './AcExMeasurement'
-import { AcExOsnapIndex } from './AcExOsnap'
+import { AcExMarkupController } from './AcExMarkup'
+import { AcExMeasureController } from './AcExMeasurement'
+import {
+  acexBindMobileSnapLoupe,
+  acexHideMobileSnapLoupe,
+  acexRefreshMobileSnapLoupe,
+  acexSetMobileSnapLoupePreciseCapture
+} from './AcExMobileSnapLoupe'
+import { AcExOsnapIndex, estimateOsnapRebuildWork } from './AcExOsnap'
 import { AcExOsnapMarker } from './AcExOsnapMarker'
 import {
+  loadAcExPackageLayoutOsnap,
+  resolveChunkUrl,
+  snapshotSkeletonFromManifest
+} from './AcExPackageLoader'
+import type { AcExPackageManifest } from './AcExPackageTypes'
+import {
+  computeOnscreenPaperViewportPass,
   computeViewportCamera,
   findDrillThroughViewport,
   modelPointToPaper,
@@ -59,20 +83,26 @@ import {
   viewportPaperToModelScale
 } from './AcExPaperViewport'
 import {
-  acexCameraZoomUniform,
+  AcExCameraZoomUniform,
   createViewerLineMaterial,
   createViewerMeshMaterial,
   createViewerPointsMaterial
 } from './AcExPatternSnapshot'
+import { acexSelectionModeFromDrag } from './AcExSelectionBox'
 import { setupAcExSessionDrawStyle } from './AcExSessionDrawStyle'
+import { createAcExSessionHistory } from './AcExSessionHistory'
+import {
+  acexHideSimulatedMouseCursor,
+  acexRefreshSimulatedMouseCursor
+} from './AcExSimulatedMouseCursor'
 import {
   ACEX_SNAP_LOUPE_INSET_PX,
   ACEX_SNAP_LOUPE_SIZE_PX,
-  ACEX_SNAP_LOUPE_TOP_INSET_PX,
   ACEX_SNAP_LOUPE_ZOOM,
   AcExSnapLoupe
 } from './AcExSnapLoupe'
 import { decodeSnapshot } from './AcExSnapshotCodec'
+import { ACEX_MAX_COMPRESSED_BYTES } from './AcExSnapshotCompression'
 import type {
   AcExExtents,
   AcExLayoutSnapshot,
@@ -81,8 +111,17 @@ import type {
   AcExSnapshot,
   AcExViewerMode
 } from './AcExSnapshotTypes'
-import { AcExTouchPointSession } from './AcExTouchPointSession'
-import { acExMaybeShowTouchPointTutorial } from './AcExTouchPointTutorial'
+import {
+  acexIsSimulatedMouseEnabled,
+  type AcExTouchPickHudHost,
+  acexTouchPickStrategy
+} from './AcExTouchPickStrategy'
+import {
+  acexShouldIgnoreCompatMouse,
+  acexSinkFollowingClick,
+  AcExTouchPointSession
+} from './AcExTouchPointSession'
+import { acexMaybeShowTouchPointTutorial } from './AcExTouchPointTutorial'
 import {
   releaseLayerGroupsGeometryCpuArrays,
   releaseSnapshotBatchBuffers,
@@ -104,8 +143,20 @@ function hideLoading(): void {
 function showViewerError(message: string): void {
   const loading = document.getElementById('mlcad-loading')
   if (!loading) return
-  loading.innerHTML = `<div style="padding:24px;color:#e8eaed;text-align:center;max-width:480px;line-height:1.5">${message}</div>`
+  loading.replaceChildren()
+  const box = document.createElement('div')
+  box.style.cssText =
+    'padding:24px;color:#e8eaed;text-align:center;max-width:480px;line-height:1.5'
+  box.textContent = message
+  loading.appendChild(box)
+  loading.classList.remove('mlcad-loading--done')
 }
+
+/**
+ * Set by {@link bootstrap} once `render` exists so async IMAGE/OLE textures can
+ * force a frame after decode (mesh materials start at opacity 0).
+ */
+let requestViewerTextureRepaint: (() => void) | null = null
 
 /** Fallback when view mode omits the footer status bar. */
 function createHiddenStatusSink(): HTMLElement {
@@ -158,9 +209,8 @@ function applyHtmlTheme(theme: AcExHtmlTheme): void {
   // action (switch to the other theme).
   const nextKey = theme === 'light' ? 'toolbar.themeLight' : 'toolbar.themeDark'
   const nextIcon =
-    theme === 'light' ? acExHtmlIcons.themeLight : acExHtmlIcons.themeDark
-  const nextTitle =
-    theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'
+    theme === 'light' ? AcExHtmlIcons.themeLight : AcExHtmlIcons.themeDark
+  const nextTitle = theme === 'light' ? 'Light' : 'Dark'
   if (icon) icon.innerHTML = nextIcon
   btn.setAttribute('data-i18n-key', nextKey)
   btn.setAttribute('data-i18n-attr', 'title aria-label')
@@ -169,6 +219,36 @@ function applyHtmlTheme(theme: AcExHtmlTheme): void {
   if (label) {
     label.setAttribute('data-i18n-key', nextKey)
     label.setAttribute('data-i18n-text', '')
+  }
+}
+
+/**
+ * Syncs the simulated-mouse settings button label / active class with the
+ * persisted preference.
+ *
+ * @param enabled - Current preference value.
+ * @param i18n - Active i18n instance used to refresh visible labels.
+ */
+function syncSimulatedMouseButton(
+  enabled: boolean,
+  i18n: AcExHtmlI18n
+): void {
+  const btn = document.getElementById('mlcad-simulated-mouse-btn')
+  if (!btn) return
+  const key = enabled
+    ? 'toolbar.simulatedMouseOn'
+    : 'toolbar.simulatedMouseOff'
+  btn.classList.toggle('active', enabled)
+  btn.setAttribute('data-i18n-key', key)
+  btn.setAttribute('data-i18n-attr', 'title aria-label')
+  const title = i18n.t(key)
+  btn.setAttribute('title', title)
+  btn.setAttribute('aria-label', title)
+  const label = btn.querySelector('.mlcad-tool-btn-label')
+  if (label) {
+    label.setAttribute('data-i18n-key', key)
+    label.setAttribute('data-i18n-text', '')
+    label.textContent = title
   }
 }
 
@@ -219,6 +299,128 @@ function flipNearBlackWhiteMaterials(root: THREE.Object3D): void {
       flipMaterialColor(mat)
     }
   })
+}
+
+/**
+ * Resolves a multi-file package session for generic `viewer.html`:
+ * query `?manifest=` / `?acex=` → config → sibling `drawing.acex.json` →
+ * folder / URL picker when the default file is missing.
+ */
+async function openAcExHtmlPackageSession(options: {
+  pageUrl: string
+  search: string
+  configManifestUrl?: string
+  i18n: AcExHtmlI18n
+}): Promise<{
+  manifest: AcExPackageManifest
+  manifestUrl: string
+  fetchImpl: typeof fetch
+} | null> {
+  const { i18n } = options
+  const initial = chooseInitialManifestHref({
+    search: options.search,
+    configManifestUrl: options.configManifestUrl
+  })
+
+  const tryUrl = async (
+    href: string,
+    fetchImpl: typeof fetch = acexGlobalFetch
+  ): Promise<
+    | { ok: true; manifest: AcExPackageManifest; manifestUrl: string }
+    | { ok: false; reason: 'not-found' | 'invalid' | 'network'; error: Error }
+  > => {
+    let manifestUrl: string
+    try {
+      manifestUrl = resolveViewerManifestUrl(href, options.pageUrl)
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'invalid',
+        error: error instanceof Error ? error : new Error(String(error))
+      }
+    }
+    const probed = await probePackageManifest(manifestUrl, fetchImpl)
+    if (!probed.ok) {
+      return { ok: false, reason: probed.reason, error: probed.error }
+    }
+    return { ok: true, manifest: probed.manifest, manifestUrl }
+  }
+
+  const first = await tryUrl(initial.href)
+  if (first.ok) {
+    return {
+      manifest: first.manifest,
+      manifestUrl: first.manifestUrl,
+      fetchImpl: acexGlobalFetch
+    }
+  }
+
+  // Query / explicit URL failures are fatal (show error, no picker).
+  if (initial.fromQuery || first.reason === 'invalid') {
+    const message =
+      first.reason === 'invalid'
+        ? i18n.t('package.invalidManifest', { error: first.error.message })
+        : i18n.t('package.loadFailed', { error: first.error.message })
+    showViewerError(message)
+    return null
+  }
+
+  // Sibling default missing → let the user pick a folder or paste a URL.
+  let gateErrorKey:
+    | 'package.manifestNotFound'
+    | 'package.invalidManifest'
+    | 'package.folderMissingManifest'
+    | 'package.loadFailed'
+    | undefined = 'package.manifestNotFound'
+  let gateErrorMessage: string | undefined
+
+  for (;;) {
+    let choice: Awaited<ReturnType<typeof promptAcExHtmlPackageSource>>
+    try {
+      choice = await promptAcExHtmlPackageSource(i18n, {
+        errorKey: gateErrorKey,
+        errorMessage: gateErrorMessage
+      })
+    } catch {
+      showViewerError(i18n.t('package.manifestNotFound'))
+      return null
+    }
+
+    if (choice.kind === 'url') {
+      const loaded = await tryUrl(choice.href)
+      if (loaded.ok) {
+        return {
+          manifest: loaded.manifest,
+          manifestUrl: loaded.manifestUrl,
+          fetchImpl: acexGlobalFetch
+        }
+      }
+      gateErrorKey =
+        loaded.reason === 'invalid'
+          ? 'package.invalidManifest'
+          : 'package.loadFailed'
+      gateErrorMessage = i18n.t(gateErrorKey, {
+        error: loaded.error.message
+      })
+      continue
+    }
+
+    const loaded = await tryUrl(choice.manifestUrl, choice.fetchImpl)
+    if (loaded.ok) {
+      return {
+        manifest: loaded.manifest,
+        manifestUrl: loaded.manifestUrl,
+        fetchImpl: choice.fetchImpl
+      }
+    }
+    gateErrorKey =
+      loaded.reason === 'invalid'
+        ? 'package.invalidManifest'
+        : 'package.loadFailed'
+    gateErrorMessage = i18n.t(gateErrorKey, {
+      error: loaded.error.message
+    })
+  }
 }
 
 function bootstrap(): void {
@@ -289,7 +491,8 @@ async function resolveSnapshotPayload(
 async function startViewer(): Promise<void> {
   const root = document.getElementById('mlcad-root')
   const snapshotEl = document.getElementById('mlcad-snapshot')
-  if (!root || !snapshotEl) {
+  const packageEl = document.getElementById('mlcad-package')
+  if (!root || (!snapshotEl && !packageEl)) {
     hideLoading()
     return
   }
@@ -297,19 +500,55 @@ async function startViewer(): Promise<void> {
   const i18n = new AcExHtmlI18n(detectAcExHtmlLocale())
   i18n.applyToDocument()
 
-  const resolved = await resolveSnapshotPayload(snapshotEl, i18n)
-  if (!resolved) {
-    return
-  }
-  const { payload, expiresAt } = resolved
-
   const statusEl =
     document.getElementById('mlcad-status-bar') ?? createHiddenStatusSink()
   wireStatusBarVisibility(statusEl)
 
   let snapshot: AcExSnapshot
+  let expiresAt: number | null = null
+  let packageSession: {
+    manifest: AcExPackageManifest
+    manifestUrl: string
+    fetchImpl: typeof fetch
+    loadedLayouts: Set<string>
+    loadedOsnapLayouts: Set<string>
+  } | null = null
+
   try {
-    snapshot = decodeSnapshot(payload)
+    if (packageEl) {
+      const config = JSON.parse(packageEl.textContent?.trim() || '{}') as {
+        manifestUrl?: string
+      }
+      const opened = await openAcExHtmlPackageSession({
+        pageUrl: window.location.href,
+        search: window.location.search,
+        configManifestUrl: config.manifestUrl,
+        i18n
+      })
+      if (!opened) {
+        return
+      }
+      snapshot = snapshotSkeletonFromManifest(opened.manifest)
+      packageSession = {
+        manifest: opened.manifest,
+        manifestUrl: opened.manifestUrl,
+        fetchImpl: opened.fetchImpl,
+        loadedLayouts: new Set(),
+        loadedOsnapLayouts: new Set()
+      }
+      removeSnapshotElement(packageEl)
+    } else if (snapshotEl) {
+      const resolved = await resolveSnapshotPayload(snapshotEl, i18n)
+      if (!resolved) {
+        return
+      }
+      expiresAt = resolved.expiresAt
+      snapshot = decodeSnapshot(resolved.payload)
+      removeSnapshotElement(snapshotEl)
+    } else {
+      hideLoading()
+      return
+    }
   } catch (error) {
     showViewerError(i18n.t('status.loadFailed', { error: String(error) }))
     return
@@ -318,12 +557,17 @@ async function startViewer(): Promise<void> {
   const viewerMode: AcExViewerMode = snapshot.meta.viewerMode ?? 'measure'
   const measureEnabled = viewerMode === 'measure'
 
+  if (snapshot.meta.docsBaseUrl) {
+    acexSetDocsBaseUrl(snapshot.meta.docsBaseUrl)
+  }
+
   const grip = snapshot.meta.grip
   root.style.setProperty('--ml-ui-grip-size', `${grip?.size ?? 8}px`)
   root.style.setProperty('--ml-ui-grip-normal', grip?.colorCss ?? '#0080ff')
   root.style.setProperty('--ml-ui-grip-hot', grip?.hotColorCss ?? '#ff0000')
 
   applyHtmlTheme(loadStoredTheme())
+  syncSimulatedMouseButton(acexIsSimulatedMouseEnabled(), i18n)
   i18n.applyToDocument()
 
   const initialLayout =
@@ -339,8 +583,7 @@ async function startViewer(): Promise<void> {
     snapshot.layers.map(layer => [layer.name, layer.visible])
   )
 
-  const canvasHost =
-    document.getElementById('mlcad-canvas-host') ?? root
+  const canvasHost = document.getElementById('mlcad-canvas-host') ?? root
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   canvasHost.insertBefore(renderer.domElement, canvasHost.firstChild)
@@ -414,17 +657,18 @@ async function startViewer(): Promise<void> {
     return group
   }
 
-  const populateLayoutGeometry = (
-    next: AcExLayoutSnapshot,
+  const appendBatchesToScene = (
+    lineBatches: AcExLineBatch[],
+    meshBatches: AcExMeshBatch[],
     groups: Map<string, THREE.Group>,
     parent: THREE.Object3D,
     materials: LineMaterial[]
   ) => {
-    for (const batch of next.lineBatches) {
+    for (const batch of lineBatches) {
       const object = createLineObject(batch, materials, wideLineResolution)
       if (object) getOrCreateLayerGroup(groups, parent, batch.layer).add(object)
     }
-    for (const batch of next.meshBatches) {
+    for (const batch of meshBatches) {
       const object = batch.points
         ? createPointObject(batch)
         : createMeshObject(batch)
@@ -432,26 +676,204 @@ async function startViewer(): Promise<void> {
     }
   }
 
-  if (modelLayout) {
-    populateLayoutGeometry(
-      modelLayout,
-      modelLayerGroups,
-      modelRoot,
-      modelWideLineMaterials
+  const populateLayoutGeometry = (
+    next: AcExLayoutSnapshot,
+    groups: Map<string, THREE.Group>,
+    parent: THREE.Object3D,
+    materials: LineMaterial[]
+  ) => {
+    appendBatchesToScene(
+      next.lineBatches,
+      next.meshBatches,
+      groups,
+      parent,
+      materials
     )
   }
+
+  /** Set after {@link render} exists; paints each package chunk as it arrives. */
+  let paintPackageChunk: (() => void) | null = null
+
+  const disposeObject3D = (object: THREE.Object3D) => {
+    object.traverse(child => {
+      const mesh = child as THREE.Mesh
+      if (mesh.geometry) mesh.geometry.dispose()
+      const material = mesh.material
+      if (Array.isArray(material)) {
+        material.forEach(item => item.dispose())
+      } else if (material) {
+        material.dispose()
+      }
+    })
+  }
+
+  const disposePaperGeometry = () => {
+    for (const group of paperLayerGroups.values()) {
+      paperRoot.remove(group)
+      disposeObject3D(group)
+    }
+    paperLayerGroups.clear()
+    paperWideLineMaterials.length = 0
+  }
+
+  const clearLayoutSceneGeometry = (target: AcExLayoutSnapshot) => {
+    if (target.isModelSpace) {
+      for (const group of modelLayerGroups.values()) {
+        modelRoot.remove(group)
+        disposeObject3D(group)
+      }
+      modelLayerGroups.clear()
+      modelWideLineMaterials.length = 0
+    } else {
+      disposePaperGeometry()
+    }
+  }
+
+  const loadPackageLayoutGeometry = async (
+    target: AcExLayoutSnapshot
+  ): Promise<void> => {
+    if (!packageSession || packageSession.loadedLayouts.has(target.btrId)) {
+      return
+    }
+    const layoutRef = packageSession.manifest.layouts.find(
+      item => item.btrId === target.btrId
+    )
+    if (!layoutRef) {
+      packageSession.loadedLayouts.add(target.btrId)
+      return
+    }
+    const chunkById = new Map(
+      packageSession.manifest.chunks.map(chunk => [chunk.id, chunk])
+    )
+    const chunks = layoutRef.chunkIds
+      .map(id => chunkById.get(id))
+      .filter((chunk): chunk is NonNullable<typeof chunk> => chunk != null)
+
+    let loadedChunks = 0
+    try {
+      for (const chunkRef of chunks) {
+        statusEl.textContent = i18n.t('status.loadingChunks', {
+          loaded: String(loadedChunks),
+          total: String(chunks.length)
+        })
+        const url = resolveChunkUrl(packageSession.manifestUrl, chunkRef.href)
+        const response = await packageSession.fetchImpl(url)
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load geometry chunk (${response.status})`
+          )
+        }
+        const contentLength = response.headers.get('content-length')
+        if (contentLength != null) {
+          const declared = Number(contentLength)
+          if (
+            Number.isFinite(declared) &&
+            declared > ACEX_MAX_COMPRESSED_BYTES
+          ) {
+            throw new Error('Geometry chunk exceeds size limit')
+          }
+        }
+        const buffer = await response.arrayBuffer()
+        if (buffer.byteLength > ACEX_MAX_COMPRESSED_BYTES) {
+          throw new Error('Geometry chunk exceeds size limit')
+        }
+        const compressed = new Uint8Array(buffer)
+        const decoded = decodeChunkGzip(compressed)
+        const lineStart = target.lineBatches.length
+        const meshStart = target.meshBatches.length
+        target.lineBatches.push(...decoded.lineBatches)
+        target.meshBatches.push(...decoded.meshBatches)
+
+        const isModel = target.isModelSpace
+        appendBatchesToScene(
+          target.lineBatches.slice(lineStart),
+          target.meshBatches.slice(meshStart),
+          isModel ? modelLayerGroups : paperLayerGroups,
+          isModel ? modelRoot : paperRoot,
+          isModel ? modelWideLineMaterials : paperWideLineMaterials
+        )
+        loadedChunks += 1
+        statusEl.textContent = i18n.t('status.loadingChunks', {
+          loaded: String(loadedChunks),
+          total: String(chunks.length)
+        })
+        // Show this chunk immediately — do not wait for remaining downloads.
+        paintPackageChunk?.()
+        await accmYieldForPaint()
+      }
+
+      packageSession.loadedLayouts.add(target.btrId)
+    } catch (error) {
+      // Drop partial batches and scene objects so a retry cannot duplicate geometry.
+      target.lineBatches.length = 0
+      target.meshBatches.length = 0
+      clearLayoutSceneGeometry(target)
+      throw error
+    }
+  }
+
+  /**
+   * Downloads OSNAP after geometry is already visible. Multiple ACEO chunks are
+   * fetched in parallel; viewing does not depend on this data.
+   */
+  const loadPackageLayoutOsnap = async (
+    target: AcExLayoutSnapshot
+  ): Promise<void> => {
+    if (
+      !packageSession ||
+      !measureEnabled ||
+      packageSession.loadedOsnapLayouts.has(target.btrId)
+    ) {
+      return
+    }
+    await loadAcExPackageLayoutOsnap(
+      packageSession.manifest,
+      packageSession.manifestUrl,
+      target.btrId,
+      target,
+      {
+        fetchImpl: packageSession.fetchImpl,
+        yieldFn: async () => {
+          paintPackageChunk?.()
+          await accmYieldForPaint()
+        },
+        onChunk: progress => {
+          statusEl.textContent = i18n.t('status.loadingOsnap', {
+            loaded: String(progress.loadedChunks),
+            total: String(progress.totalChunks)
+          })
+        }
+      }
+    )
+    packageSession.loadedOsnapLayouts.add(target.btrId)
+  }
+
+  // Attach roots before any progressive fetch so appended batches are visible.
   if (layout.isModelSpace) {
     scene.add(modelRoot)
   } else {
     scene.add(paperRoot)
-    populateLayoutGeometry(
-      layout,
-      paperLayerGroups,
-      paperRoot,
-      paperWideLineMaterials
-    )
     if (hasPaperViewports) {
       modelScene.add(modelRoot)
+    }
+  }
+
+  if (!packageSession) {
+    if (modelLayout) {
+      populateLayoutGeometry(
+        modelLayout,
+        modelLayerGroups,
+        modelRoot,
+        modelWideLineMaterials
+      )
+    }
+    if (!layout.isModelSpace) {
+      populateLayoutGeometry(
+        layout,
+        paperLayerGroups,
+        paperRoot,
+        paperWideLineMaterials
+      )
     }
   }
 
@@ -488,23 +910,58 @@ async function startViewer(): Promise<void> {
     }
   }
 
-  if (measureEnabled) {
-    osnapIndex = new AcExOsnapIndex()
-    osnapMarker = new AcExOsnapMarker(root)
-    osnapIndex.rebuild(layout)
-    applyOsnapLayerVisibility(osnapIndex)
-    if (hasPaperViewports && modelLayout) {
-      modelOsnapIndex = new AcExOsnapIndex()
-      modelOsnapIndex.rebuild(modelLayout)
-      applyOsnapLayerVisibility(modelOsnapIndex)
+  const clearStatusBar = () => {
+    statusEl.textContent = ''
+    statusEl.hidden = true
+  }
+
+  const osnapIndexYield = (): Promise<void> =>
+    // Prefer a macrotask over `accmYieldForPaint` / rAF: waiting a full frame
+    // per slice turned million-edge hybrid indexes into multi-minute jobs.
+    new Promise(resolve => {
+      setTimeout(resolve, 0)
+    })
+
+  const rebuildOsnapForLoadedGeometry = async () => {
+    if (!measureEnabled) return
+    if (!osnapIndex) {
+      osnapIndex = new AcExOsnapIndex()
+      osnapMarker = new AcExOsnapMarker(root)
     }
-    // Keep inactive-layout catalogs so the user can switch back.
-    if (!canSwitchLayouts) {
-      releaseSnapshotOsnapCatalogs(snapshot)
+    const workEstimate =
+      estimateOsnapRebuildWork(layout) +
+      (hasPaperViewports && modelLayout
+        ? estimateOsnapRebuildWork(modelLayout)
+        : 0)
+    if (workEstimate > 8000) {
+      statusEl.hidden = false
+      statusEl.textContent = i18n.t('status.buildingOsnap')
+      await accmYieldForPaint()
+    }
+    try {
+      await osnapIndex.rebuildAsync(layout, osnapIndexYield)
+      applyOsnapLayerVisibility(osnapIndex)
+      if (hasPaperViewports && modelLayout) {
+        if (!modelOsnapIndex) {
+          modelOsnapIndex = new AcExOsnapIndex()
+        }
+        await modelOsnapIndex.rebuildAsync(modelLayout, osnapIndexYield)
+        applyOsnapLayerVisibility(modelOsnapIndex)
+      }
+      if (!canSwitchLayouts) {
+        releaseSnapshotOsnapCatalogs(snapshot)
+      }
+    } finally {
+      clearStatusBar()
     }
   }
 
-  removeSnapshotElement(snapshotEl)
+  // Create empty indexes now; hybrid rebuild runs after first paint so the
+  // canvas is interactive while tessellated line snap is prepared.
+  if (measureEnabled) {
+    osnapIndex = new AcExOsnapIndex()
+    osnapMarker = new AcExOsnapMarker(root)
+  }
 
   const updateCameraFrustum = (width?: number, height?: number) => {
     const size = getCanvasSize()
@@ -516,7 +973,7 @@ async function startViewer(): Promise<void> {
     camera.top = ACEX_CAMERA_FRUSTUM
     camera.bottom = -ACEX_CAMERA_FRUSTUM
     camera.updateProjectionMatrix()
-    acexCameraZoomUniform.value = camera.zoom
+    AcExCameraZoomUniform.value = camera.zoom
     controls.update()
   }
 
@@ -528,7 +985,7 @@ async function startViewer(): Promise<void> {
     controls.target.copy(target)
     if (zoom != null) camera.zoom = zoom
     camera.updateProjectionMatrix()
-    acexCameraZoomUniform.value = camera.zoom
+    AcExCameraZoomUniform.value = camera.zoom
     controls.update()
     recomputeOsnapThresholdWcs()
     bumpSnapCacheKey()
@@ -545,6 +1002,10 @@ async function startViewer(): Promise<void> {
       material.resolution.copy(wideLineResolution)
     }
     updateCameraFrustum(width, height)
+    // Keep OSNAP threshold and committed measure/markup overlays in sync when
+    // the WebGL viewport / camera frustum change (window resize, tool strip, …).
+    recomputeOsnapThresholdWcs()
+    bumpSnapCacheKey()
   }
 
   const zoomToExtents = (extents: AcExExtents) => {
@@ -709,10 +1170,13 @@ async function startViewer(): Promise<void> {
 
   let measure: AcExMeasureController | null = null
   let markup: AcExMarkupController | null = null
+  const sessionHistory = createAcExSessionHistory()
   let measureSession: AcExCommandSessionUiState | null = null
   let markupSession: AcExCommandSessionUiState | null = null
   let sessionPanelVisible = false
-  const sessionHost = document.getElementById('mlcad-command-session')
+  const sessionHost =
+    document.getElementById('mlcad-canvas-host') ??
+    document.getElementById('mlcad-root')
   const sessionPanel = sessionHost
     ? new AcExCommandSessionPanel(sessionHost, i18n)
     : null
@@ -722,18 +1186,98 @@ async function startViewer(): Promise<void> {
   const sessionDrawStyleRef: {
     current: ReturnType<typeof setupAcExSessionDrawStyle> | null
   } = { current: null }
+  const shortCutToolbarRef: {
+    current: ReturnType<typeof setupAcExHtmlShortCutToolbar> | null
+  } = { current: null }
+
+  const runSessionUndo = () => {
+    if (measure?.canUndoLastVertex()) {
+      measure.undoLastVertex()
+      shortCutToolbarRef.current?.syncActionState()
+      return
+    }
+    sessionHistory.undo()
+    shortCutToolbarRef.current?.syncActionState()
+  }
+  const runSessionRedo = () => {
+    sessionHistory.redo()
+    shortCutToolbarRef.current?.syncActionState()
+  }
+  sessionHistory.subscribe(() => {
+    shortCutToolbarRef.current?.syncActionState()
+  })
+
+  const syncHtmlShortCutSelection = () => {
+    const toolbar = shortCutToolbarRef.current
+    if (!toolbar) return
+    acexSyncHtmlShortCutSelection({
+      i18n,
+      getKind: () => {
+        if (measure?.isActive) return 'measure'
+        if (markup?.isActive) return 'markup'
+        if (measure?.hasSelection) return 'measure'
+        if (markup?.hasSelection) return 'markup'
+        return undefined
+      },
+      hasSelection: kind =>
+        kind === 'measure'
+          ? measure?.hasSelection === true
+          : markup?.hasSelection === true,
+      getStyle: kind => {
+        const style =
+          kind === 'measure' ? measure!.getDrawStyle() : markup!.getDrawStyle()
+        return {
+          color: style.color,
+          fontSize: style.fontSize,
+          textHeightMode: style.textHeightMode,
+          textHeightWcs: style.textHeightWcs
+        }
+      },
+      applyStyle: (kind, patch) => {
+        if (kind === 'measure') measure!.setDrawStyle(patch)
+        else markup!.setDrawStyle(patch)
+      },
+      wcsToScreen: p => wcsToScreen(new THREE.Vector2(p.x, p.y)),
+      setExtensionItems: items => toolbar.setExtensionItems(items)
+    })
+    toolbar.syncActionState()
+  }
+
+  /** Saved side panels closed for canvas space during a draw session. */
+  let chromeBeforeSession: {
+    layerOpen: boolean
+    reviewOpen: boolean
+    measureOpen: boolean
+  } | null = null
+  const sessionChromeRef: {
+    current: {
+      hide: () => void
+      restore: () => void
+    }
+  } = {
+    current: {
+      hide: () => undefined,
+      restore: () => undefined
+    }
+  }
   const applySessionUi = () => {
     const state = measureSession ?? markupSession
     const nowVisible = state != null
     sessionPanel?.setState(state)
     sessionPanel?.setAccessory(
-      state ? (sessionDrawStyleRef.current?.createSessionAccessory() ?? null) : null
+      state
+        ? (sessionDrawStyleRef.current?.createSessionAccessory() ?? null)
+        : null
     )
     drawerSheetsRef.current?.syncInset()
     if (nowVisible && !sessionPanelVisible) {
-      void acExMaybeShowTouchPointTutorial(i18n)
+      sessionChromeRef.current.hide()
+      void acexMaybeShowTouchPointTutorial(i18n)
+    } else if (!nowVisible && sessionPanelVisible) {
+      sessionChromeRef.current.restore()
     }
     sessionPanelVisible = nowVisible
+    shortCutToolbarRef.current?.syncActionState()
   }
   sessionPanel?.setHandlers({
     onConfirm: () => {
@@ -744,17 +1288,14 @@ async function startViewer(): Promise<void> {
       else markup?.cancelSession()
     },
     onChip: id => {
-      if (id === 'undo') measure?.undoLastVertex()
+      if (id === 'undo') runSessionUndo()
     }
   })
   const measureSettingsRef: {
     current: ReturnType<typeof setupAcExHtmlMeasureSettings> | null
   } = { current: null }
-  const toolbarFlyoutsRef: {
-    current: ReturnType<typeof setupAcExHtmlToolbarFlyouts> | null
-  } = { current: null }
-  const layoutMenuRef: {
-    current: ReturnType<typeof setupAcExHtmlLayoutMenu> | null
+  const mainToolbarRef: {
+    current: AcExHtmlMainToolbarController | null
   } = { current: null }
   const navToolsRef: {
     current: ReturnType<typeof setupAcExHtmlNavTools> | null
@@ -764,17 +1305,51 @@ async function startViewer(): Promise<void> {
   const isToolActive = () =>
     measure?.isActive === true || markup?.isActive === true
 
+  /** True while the snap loupe is open; one-finger pan stays off until it closes. */
+  let preciseCaptureActive = false
+
+  /**
+   * Wires OrbitControls pan for idle nav vs drawing tools.
+   *
+   * Drawing tools keep mouse left-click free for picks, but one-finger touch
+   * pan stays on until precise capture (loupe) so the canvas can still be
+   * dragged before a long-press — matches cad-simple-viewer.
+   */
   const setLeftPanForTools = () => {
     if (isToolActive()) {
       navToolsRef.current?.cancelZoomWindow()
     }
-    setOrbitLeftButtonPan(
-      controls,
-      navToolsRef.current?.isPanEnabled() ?? !isToolActive()
-    )
+    const idlePan = navToolsRef.current?.isPanEnabled() ?? !isToolActive()
+    const drawing = isToolActive()
+    const navMode = navToolsRef.current?.getMode()
+    const idleTouchPan =
+      navMode != null && acexIdlePointerStrategy().enablesIdleTouchPan(navMode)
+    setOrbitPanButtons(controls, {
+      leftMousePan: idlePan,
+      oneFingerPan:
+        (idlePan || drawing || idleTouchPan) && !preciseCaptureActive
+    })
+    controls.enabled = !preciseCaptureActive
     sessionDrawStyleRef.current?.refresh()
     navToolsRef.current?.syncButtons()
   }
+
+  /**
+   * Disables navigation while the snap loupe tracks a long-press, then
+   * restores idle / drawing pan rules.
+   *
+   * @param active - True when precise capture (loupe) is visible.
+   */
+  const setPreciseCaptureActive = (active: boolean) => {
+    preciseCaptureActive = active
+    setLeftPanForTools()
+  }
+
+  acexBindMobileSnapLoupe({
+    refresh: refreshSnapLoupeHud,
+    hide: hideSnapLoupe,
+    setPreciseCaptureActive
+  })
 
   const paperWorldToScreen = (
     x: number,
@@ -787,81 +1362,6 @@ async function startViewer(): Promise<void> {
       x: ((ndc.x + 1) / 2) * width,
       y: ((-ndc.y + 1) / 2) * height
     }
-  }
-
-  const renderPaperViewports = () => {
-    const viewports = layout.viewports
-    if (
-      layout.isModelSpace ||
-      !viewports?.length ||
-      modelRoot.children.length === 0
-    ) {
-      return
-    }
-    const { width, height } = getCanvasSize()
-    if (width <= 0 || height <= 0) return
-
-    const autoClear = renderer.autoClear
-    renderer.autoClear = false
-    renderer.getViewport(savedViewportBox)
-    renderer.clearDepth()
-
-    for (const viewport of viewports) {
-      const pMin = paperWorldToScreen(
-        viewport.paper.minX,
-        viewport.paper.minY,
-        width,
-        height
-      )
-      const pMax = paperWorldToScreen(
-        viewport.paper.maxX,
-        viewport.paper.maxY,
-        width,
-        height
-      )
-      const minX = Math.min(pMin.x, pMax.x)
-      const maxX = Math.max(pMin.x, pMax.x)
-      const minY = Math.min(pMin.y, pMax.y)
-      const maxY = Math.max(pMin.y, pMax.y)
-      const vpW = maxX - minX
-      const vpH = maxY - minY
-      if (vpW < 1 || vpH < 1) continue
-
-      const scissorX = minX
-      const scissorY = height - maxY
-      renderer.setViewport(scissorX, scissorY, vpW, vpH)
-      renderer.setScissor(scissorX, scissorY, vpW, vpH)
-      renderer.setScissorTest(true)
-
-      const fitted = computeViewportCamera(viewport.model, vpW, vpH)
-      viewportCamera.left = -fitted.aspect * fitted.frustum
-      viewportCamera.right = fitted.aspect * fitted.frustum
-      viewportCamera.top = fitted.frustum
-      viewportCamera.bottom = -fitted.frustum
-      viewportCamera.position.set(
-        fitted.centerX,
-        fitted.centerY,
-        ACEX_CAMERA_DISTANCE
-      )
-      viewportCamera.lookAt(fitted.centerX, fitted.centerY, 0)
-      const twist = viewport.twist ?? 0
-      viewportCamera.up.set(-Math.sin(twist), Math.cos(twist), 0)
-      viewportCamera.setRotationFromEuler(new THREE.Euler(0, 0, twist))
-      viewportCamera.zoom = fitted.zoom
-      viewportCamera.updateProjectionMatrix()
-      acexCameraZoomUniform.value = fitted.zoom
-      renderer.render(modelScene, viewportCamera)
-      renderer.setScissorTest(false)
-    }
-
-    renderer.setViewport(
-      savedViewportBox.x,
-      savedViewportBox.y,
-      savedViewportBox.z,
-      savedViewportBox.w
-    )
-    renderer.autoClear = autoClear
-    acexCameraZoomUniform.value = camera.zoom
   }
 
   /**
@@ -892,7 +1392,79 @@ async function startViewer(): Promise<void> {
     target.setRotationFromEuler(new THREE.Euler(0, 0, twist))
     target.zoom = fitted.zoom
     target.updateProjectionMatrix()
-    acexCameraZoomUniform.value = fitted.zoom
+    AcExCameraZoomUniform.value = fitted.zoom
+  }
+
+  const renderPaperViewports = () => {
+    const viewports = layout.viewports
+    if (
+      layout.isModelSpace ||
+      !viewports?.length ||
+      modelRoot.children.length === 0
+    ) {
+      return
+    }
+    const { width, height } = getCanvasSize()
+    if (width <= 0 || height <= 0) return
+
+    const autoClear = renderer.autoClear
+    renderer.autoClear = false
+    renderer.getViewport(savedViewportBox)
+    renderer.clearDepth()
+
+    const canvasRect = { x: 0, y: 0, width, height }
+    for (const viewport of viewports) {
+      const pMin = paperWorldToScreen(
+        viewport.paper.minX,
+        viewport.paper.minY,
+        width,
+        height
+      )
+      const pMax = paperWorldToScreen(
+        viewport.paper.maxX,
+        viewport.paper.maxY,
+        width,
+        height
+      )
+      const minX = Math.min(pMin.x, pMax.x)
+      const maxX = Math.max(pMin.x, pMax.x)
+      const minY = Math.min(pMin.y, pMax.y)
+      const maxY = Math.max(pMin.y, pMax.y)
+      const pass = computeOnscreenPaperViewportPass(
+        viewport,
+        {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY
+        },
+        canvasRect
+      )
+      if (!pass) continue
+
+      const gl = acexCssTopLeftRectToGl(pass.hit, height)
+      renderer.setViewport(gl.x, gl.y, gl.width, gl.height)
+      renderer.setScissor(gl.x, gl.y, gl.width, gl.height)
+      renderer.setScissorTest(true)
+      applyOrthoFit(
+        viewportCamera,
+        pass.model,
+        pass.hit.width,
+        pass.hit.height,
+        viewport.twist ?? 0
+      )
+      renderer.render(modelScene, viewportCamera)
+      renderer.setScissorTest(false)
+    }
+
+    renderer.setViewport(
+      savedViewportBox.x,
+      savedViewportBox.y,
+      savedViewportBox.z,
+      savedViewportBox.w
+    )
+    renderer.autoClear = autoClear
+    AcExCameraZoomUniform.value = camera.zoom
   }
 
   /**
@@ -905,8 +1477,14 @@ async function startViewer(): Promise<void> {
     const { width, height } = getCanvasSize()
     if (width <= 0 || height <= 0) return
     const half = ACEX_SNAP_LOUPE_SIZE_PX / ACEX_SNAP_LOUPE_ZOOM / 2
-    const p1 = screenToWcs(loupeSample.clientX - half, loupeSample.clientY - half)
-    const p2 = screenToWcs(loupeSample.clientX + half, loupeSample.clientY + half)
+    const p1 = screenToWcs(
+      loupeSample.clientX - half,
+      loupeSample.clientY - half
+    )
+    const p2 = screenToWcs(
+      loupeSample.clientX + half,
+      loupeSample.clientY + half
+    )
     const viewBox: AcExExtents = {
       minX: Math.min(p1.x, p2.x),
       minY: Math.min(p1.y, p2.y),
@@ -915,11 +1493,11 @@ async function startViewer(): Promise<void> {
     }
     const loupeRect = {
       x: ACEX_SNAP_LOUPE_INSET_PX,
-      y: ACEX_SNAP_LOUPE_TOP_INSET_PX,
+      y: snapLoupe.topInsetPx,
       width: ACEX_SNAP_LOUPE_SIZE_PX,
       height: ACEX_SNAP_LOUPE_SIZE_PX
     }
-    const gl = acExCssTopLeftRectToGl(loupeRect, height)
+    const gl = acexCssTopLeftRectToGl(loupeRect, height)
     const autoClear = renderer.autoClear
     renderer.autoClear = false
     renderer.getViewport(savedViewportBox)
@@ -936,24 +1514,20 @@ async function startViewer(): Promise<void> {
       modelRoot.children.length > 0
     ) {
       for (const viewport of layout.viewports) {
-        const magRect = acExWcsBoxToCssRect(viewport.paper, viewBox, loupeRect)
-        const hit = acExIntersectCssRects(magRect, loupeRect)
-        if (!hit) continue
-        const paperHit = acExCssRectToWcsBox(hit, viewBox, loupeRect)
-        const corners = [
-          paperPointToModel(viewport, paperHit.minX, paperHit.minY),
-          paperPointToModel(viewport, paperHit.maxX, paperHit.minY),
-          paperPointToModel(viewport, paperHit.maxX, paperHit.maxY),
-          paperPointToModel(viewport, paperHit.minX, paperHit.maxY)
-        ]
-        const modelBox: AcExExtents = {
-          minX: Math.min(...corners.map(c => c.x)),
-          minY: Math.min(...corners.map(c => c.y)),
-          maxX: Math.max(...corners.map(c => c.x)),
-          maxY: Math.max(...corners.map(c => c.y))
-        }
-        const nestedGl = acExCssTopLeftRectToGl(hit, height)
-        renderer.setScissor(nestedGl.x, nestedGl.y, nestedGl.width, nestedGl.height)
+        const magRect = acexWcsBoxToCssRect(viewport.paper, viewBox, loupeRect)
+        const pass = computeOnscreenPaperViewportPass(
+          viewport,
+          magRect,
+          loupeRect
+        )
+        if (!pass) continue
+        const nestedGl = acexCssTopLeftRectToGl(pass.hit, height)
+        renderer.setScissor(
+          nestedGl.x,
+          nestedGl.y,
+          nestedGl.width,
+          nestedGl.height
+        )
         renderer.setViewport(
           nestedGl.x,
           nestedGl.y,
@@ -963,9 +1537,9 @@ async function startViewer(): Promise<void> {
         renderer.clearDepth()
         applyOrthoFit(
           loupeCamera,
-          modelBox,
-          hit.width,
-          hit.height,
+          pass.model,
+          pass.hit.width,
+          pass.hit.height,
           viewport.twist ?? 0
         )
         renderer.render(modelScene, loupeCamera)
@@ -980,7 +1554,7 @@ async function startViewer(): Promise<void> {
       savedViewportBox.w
     )
     renderer.autoClear = autoClear
-    acexCameraZoomUniform.value = camera.zoom
+    AcExCameraZoomUniform.value = camera.zoom
   }
 
   const render = () => {
@@ -989,6 +1563,21 @@ async function startViewer(): Promise<void> {
     renderer.render(scene, camera)
     renderPaperViewports()
     renderSnapLoupe()
+  }
+
+  paintPackageChunk = () => {
+    const next = computeLayerExtentsMap(
+      layout.lineBatches,
+      layout.meshBatches
+    )
+    layerExtents.clear()
+    for (const [name, extents] of next) {
+      layerExtents.set(name, extents)
+    }
+    render()
+  }
+  requestViewerTextureRepaint = () => {
+    render()
   }
 
   if (measureEnabled) {
@@ -1017,8 +1606,10 @@ async function startViewer(): Promise<void> {
       },
       onStyleChange: () => {
         sessionDrawStyleRef.current?.refresh()
+        syncHtmlShortCutSelection()
       },
       getActiveLayoutId: () => layout.btrId,
+      sessionHistory,
       view: {
         screenToWcs,
         wcsToScreen,
@@ -1090,10 +1681,12 @@ async function startViewer(): Promise<void> {
       },
       onStyleChange: () => {
         sessionDrawStyleRef.current?.refresh()
+        syncHtmlShortCutSelection()
       },
       getTrackingOptions: () =>
         measureSettingsRef.current?.getTrackingOptions() ?? null,
       getActiveLayoutId: () => layout.btrId,
+      sessionHistory,
       view: {
         screenToWcs,
         wcsToScreen,
@@ -1117,12 +1710,19 @@ async function startViewer(): Promise<void> {
       getKind: () => {
         if (measure?.isActive) return 'measure'
         if (markup?.isActive) return 'markup'
+        if (measure && measure.hasSelection) return 'measure'
+        if (markup?.hasSelection) return 'markup'
         return undefined
       },
       getStyle: kind => {
         const style =
           kind === 'measure' ? measure!.getDrawStyle() : markup!.getDrawStyle()
-        return { color: style.color, fontSize: style.fontSize }
+        return {
+          color: style.color,
+          fontSize: style.fontSize,
+          textHeightMode: style.textHeightMode,
+          textHeightWcs: style.textHeightWcs
+        }
       },
       applyStyle: (kind, patch) => {
         if (kind === 'measure') {
@@ -1130,16 +1730,42 @@ async function startViewer(): Promise<void> {
         } else {
           markup!.setDrawStyle(patch)
         }
-      }
+      },
+      wcsToScreen: p => wcsToScreen(new THREE.Vector2(p.x, p.y))
     })
     applySessionUi()
+    syncHtmlShortCutSelection()
   }
 
-  const toolbarCollapse = setupToolbarCollapse(i18n, () => {
-    toolbarFlyoutsRef.current?.close()
-    layoutMenuRef.current?.close()
-    measureSettingsRef.current?.close()
-  })
+  if (!shortCutToolbarRef.current) {
+    shortCutToolbarRef.current = setupAcExHtmlShortCutToolbar({
+      i18n,
+      container: root,
+      statusEl,
+      actions: {
+        undo: () => runSessionUndo(),
+        redo: () => runSessionRedo(),
+        erase: () => {
+          if (markup?.hasSelection) {
+            markup.deleteSelected()
+            return
+          }
+          if (measure?.hasSelection) {
+            measure.handleSelectionKeyDown('Delete')
+          }
+        }
+      },
+      getActionState: () => ({
+        undo:
+          measure?.canUndoLastVertex() === true || sessionHistory.canUndo(),
+        redo: sessionHistory.canRedo(),
+        erase:
+          markup?.hasSelection === true || measure?.hasSelection === true
+      })
+    })
+    syncHtmlShortCutSelection()
+    shortCutToolbarRef.current.syncActionState()
+  }
 
   const closeLayerDrawer = () => {
     const layerDrawer = document.getElementById('mlcad-layer-drawer')
@@ -1151,16 +1777,172 @@ async function startViewer(): Promise<void> {
 
   let reviewPanel: ReturnType<typeof setupAcExHtmlReviewPanel> = null
   let measurePanel: ReturnType<typeof setupAcExHtmlMeasurePanel> = null
+  let layerPanel: ReturnType<typeof setupLayerPanel> | null = null
 
   const drawerSheets = setupAcExHtmlDrawerSheets({
     closeStrips: () => {
-      toolbarFlyoutsRef.current?.close()
-      layoutMenuRef.current?.close()
+      mainToolbarRef.current?.dismissOpenChildren()
     }
   })
   drawerSheetsRef.current = drawerSheets
 
-  const layerPanel = setupLayerPanel({
+  const dismissToolbarChrome = () => {
+    mainToolbarRef.current?.dismissOpenChildren()
+    measureSettingsRef.current?.close()
+  }
+
+  const onToolbarChromeChange = () => {
+    // Layout rebuild may replace toolbar buttons; re-apply nav pressed state.
+    navToolsRef.current?.syncButtons()
+    drawerSheets.syncInset()
+    resize()
+    recomputeOsnapThresholdWcs()
+    bumpSnapCacheKey()
+    render()
+  }
+
+  const switchLayout = (btrId: string) => {
+    void switchLayoutAsync(btrId)
+  }
+
+  const toolbarHost = document.getElementById('mlcad-toolbar')
+  if (toolbarHost) {
+    mainToolbarRef.current = setupAcExHtmlMainToolbar({
+      host: toolbarHost,
+      themeHost: root,
+      i18n,
+      viewerMode,
+      exportLayouts: snapshot.meta.exportLayouts !== false,
+      layouts: snapshot.layouts.map(item => ({
+        btrId: item.btrId,
+        name: item.name
+      })),
+      getActiveLayoutBtrId: () => layout.btrId,
+      handlers: {
+        setNavMode: mode => {
+          navToolsRef.current?.setMode(mode)
+        },
+        fit: () => {
+          navToolsRef.current?.cancelZoomWindow()
+          measure?.cancelMode()
+          markup?.cancelMode()
+          fit()
+        },
+        restoreOriginalView: () => {
+          navToolsRef.current?.cancelZoomWindow()
+          measure?.cancelMode()
+          markup?.cancelMode()
+          restoreOriginalView()
+        },
+        cancelZoomWindow: () => navToolsRef.current?.cancelZoomWindow(),
+        toggleLayerDrawer: () => {
+          if (layerPanel) {
+            layerPanel.setOpen(!layerPanel.isOpen())
+            return
+          }
+          const drawer = document.getElementById('mlcad-layer-drawer')
+          if (!drawer) return
+          const open = drawer.hidden
+          if (open) {
+            reviewPanel?.close()
+            measurePanel?.close()
+            if (acexHtmlIsPhoneLayout()) drawerSheets.preparePhoneOpen(drawer)
+          }
+          drawer.hidden = !open
+          const layersBtn = document.getElementById('mlcad-layers-btn')
+          layersBtn?.classList.toggle('active', open)
+          layersBtn?.setAttribute('aria-expanded', String(open))
+        },
+        switchLayout,
+        setMeasureMode: mode => {
+          markup?.cancelMode()
+          measure?.setMode(mode)
+        },
+        toggleMeasurePanel: () => {
+          measure?.cancelMode()
+          markup?.cancelMode()
+          const drawer = document.getElementById('mlcad-measure-drawer')
+          measurePanel?.setOpen(Boolean(drawer?.hidden))
+        },
+        toggleMeasureVisibility: () => {
+          measure?.toggleVisible()
+        },
+        isMeasureVisible: () => measure?.visible !== false,
+        clearMeasurements: () => {
+          measure?.clearAll()
+        },
+        importMeasurements: () => {
+          measure?.importSidecar()
+        },
+        exportMeasurements: () => {
+          measure?.exportSidecar()
+        },
+        setMarkupMode: mode => {
+          measure?.cancelMode()
+          markup?.setMode(mode)
+        },
+        toggleMarkupPanel: () => {
+          measure?.cancelMode()
+          markup?.cancelMode()
+          const drawer = document.getElementById('mlcad-review-drawer')
+          reviewPanel?.setOpen(Boolean(drawer?.hidden))
+        },
+        toggleMarkupVisibility: () => {
+          markup?.toggleVisible()
+        },
+        isMarkupVisible: () => markup?.visible !== false,
+        clearMarkups: () => {
+          markup?.clearAll()
+        },
+        importMarkups: () => {
+          markup?.importSidecar()
+        },
+        exportMarkups: () => {
+          markup?.exportSidecar()
+        },
+        applyTheme: theme => {
+          applyHtmlTheme(theme)
+          i18n.applyToDocument()
+          mainToolbarRef.current?.refresh()
+        },
+        getTheme: () =>
+          (document.documentElement.getAttribute(
+            'data-mlcad-theme'
+          ) as AcExHtmlTheme | null) ?? 'dark',
+        switchBackground: () => {
+          switchDrawingBackground()
+        },
+        toggleOrtho: () => {
+          measureSettingsRef.current?.toggleOrtho()
+          mainToolbarRef.current?.refresh()
+        },
+        isOrtho: () => measureSettingsRef.current?.isOrtho() === true,
+        togglePolarPanel: () => {
+          const open =
+            measureSettingsRef.current?.togglePolarPanel() ?? false
+          mainToolbarRef.current?.refresh()
+          return open
+        },
+        isPolarPanelOpen: () =>
+          measureSettingsRef.current?.isPolarPanelOpen() === true,
+        onChromeChange: onToolbarChromeChange,
+        onExclusiveOpen: () => {
+          if (!acexHtmlIsPhoneLayout()) return
+          closeLayerDrawer()
+          reviewPanel?.close()
+          measurePanel?.close()
+        },
+        onCollapse: () => {
+          dismissToolbarChrome()
+          closeLayerDrawer()
+          reviewPanel?.close()
+          measurePanel?.close()
+        }
+      }
+    })
+  }
+
+  layerPanel = setupLayerPanel({
     snapshot,
     layerVisible,
     layerGroupMaps: [paperLayerGroups, modelLayerGroups],
@@ -1207,32 +1989,68 @@ async function startViewer(): Promise<void> {
     onPhoneOpen: drawer => drawerSheets.preparePhoneOpen(drawer)
   })
 
-  const disposeObject3D = (object: THREE.Object3D) => {
-    object.traverse(child => {
-      const mesh = child as THREE.Mesh
-      if (mesh.geometry) mesh.geometry.dispose()
-      const material = mesh.material
-      if (Array.isArray(material)) {
-        material.forEach(item => item.dispose())
-      } else if (material) {
-        material.dispose()
+  // While measure/markup is active, hide the toolbar sidebar and any open
+  // results / layer drawers so they do not compete with session chrome.
+  // Do not resize the canvas — session UI floats over the existing viewport.
+  sessionChromeRef.current = {
+    hide: () => {
+      if (chromeBeforeSession) return
+      const reviewDrawer = document.getElementById('mlcad-review-drawer')
+      const measureDrawer = document.getElementById('mlcad-measure-drawer')
+      chromeBeforeSession = {
+        layerOpen: layerPanel?.isOpen() === true,
+        reviewOpen: reviewDrawer != null && !reviewDrawer.hidden,
+        measureOpen: measureDrawer != null && !measureDrawer.hidden
       }
-    })
-  }
-
-  const disposePaperGeometry = () => {
-    for (const group of paperLayerGroups.values()) {
-      paperRoot.remove(group)
-      disposeObject3D(group)
+      dismissToolbarChrome()
+      if (chromeBeforeSession.layerOpen) layerPanel?.close()
+      if (chromeBeforeSession.reviewOpen) reviewPanel?.close()
+      if (chromeBeforeSession.measureOpen) measurePanel?.close()
+      render()
+    },
+    restore: () => {
+      const saved = chromeBeforeSession
+      chromeBeforeSession = null
+      if (saved?.layerOpen) layerPanel?.setOpen(true)
+      if (saved?.reviewOpen) reviewPanel?.setOpen(true)
+      if (saved?.measureOpen) measurePanel?.setOpen(true)
+      render()
     }
-    paperLayerGroups.clear()
-    paperWideLineMaterials.length = 0
   }
 
-  const switchLayout = (btrId: string) => {
+  const remountLayoutRoots = (
+    target: AcExLayoutSnapshot,
+    rebuildPaper: boolean
+  ) => {
+    layout = target
+    if (target.isModelSpace) {
+      scene.add(modelRoot)
+    } else {
+      scene.add(paperRoot)
+      if (rebuildPaper) {
+        populateLayoutGeometry(
+          target,
+          paperLayerGroups,
+          paperRoot,
+          paperWideLineMaterials
+        )
+        if (backgroundSwapped) {
+          flipNearBlackWhiteMaterials(paperRoot)
+        }
+      }
+      if (hasPaperViewports) {
+        modelScene.add(modelRoot)
+      }
+    }
+  }
+
+  const switchLayoutAsync = async (btrId: string) => {
     if (btrId === layout.btrId) return
     const next = snapshot.layouts.find(item => item.btrId === btrId)
     if (!next) return
+
+    const previousLayout = layout
+    const previousWasPaper = !previousLayout.isModelSpace
 
     lastViewByLayout.set(layout.btrId, captureViewState())
     navToolsRef.current?.cancelZoomWindow()
@@ -1247,16 +2065,70 @@ async function startViewer(): Promise<void> {
     modelRoot.removeFromParent()
 
     layout = next
+
+    const needsPackageLoad =
+      packageSession != null &&
+      !packageSession.loadedLayouts.has(layout.btrId)
+
+    if (needsPackageLoad && packageSession) {
+      try {
+        await loadPackageLayoutGeometry(layout)
+        if (
+          !layout.isModelSpace &&
+          hasPaperViewports &&
+          modelLayout &&
+          !packageSession.loadedLayouts.has(modelLayout.btrId)
+        ) {
+          await loadPackageLayoutGeometry(modelLayout)
+        }
+      } catch (error) {
+        statusEl.textContent = i18n.t('status.loadFailed', {
+          error: String(error)
+        })
+        // Partial next geometry was cleared by loadPackageLayoutGeometry; restore prior layout.
+        if (!next.isModelSpace) {
+          disposePaperGeometry()
+        }
+        remountLayoutRoots(previousLayout, previousWasPaper)
+        const restored = lastViewByLayout.get(previousLayout.btrId)
+        if (restored) {
+          flyTo(restored.centerX, restored.centerY, restored.zoom)
+        } else {
+          fit()
+        }
+        const restoredExtents = computeLayerExtentsMap(
+          previousLayout.lineBatches,
+          previousLayout.meshBatches
+        )
+        layerExtents.clear()
+        for (const [name, extents] of restoredExtents) {
+          layerExtents.set(name, extents)
+        }
+        layoutExtents = resolveLayoutViewExtents(previousLayout)
+        layerPanel?.syncLayerZoomButtons()
+        measure?.syncLayoutVisibility()
+        markup?.syncLayoutVisibility()
+        mainToolbarRef.current?.refresh()
+        recomputeOsnapThresholdWcs()
+        bumpSnapCacheKey()
+        render()
+        return
+      }
+    }
+
     if (layout.isModelSpace) {
       scene.add(modelRoot)
     } else {
       scene.add(paperRoot)
-      populateLayoutGeometry(
-        layout,
-        paperLayerGroups,
-        paperRoot,
-        paperWideLineMaterials
-      )
+      // Fresh package load already uploaded batches; otherwise rebuild after dispose.
+      if (!needsPackageLoad) {
+        populateLayoutGeometry(
+          layout,
+          paperLayerGroups,
+          paperRoot,
+          paperWideLineMaterials
+        )
+      }
       if (backgroundSwapped) {
         flipNearBlackWhiteMaterials(paperRoot)
       }
@@ -1277,9 +2149,31 @@ async function startViewer(): Promise<void> {
     layerPanel?.syncLayerZoomButtons()
 
     if (osnapIndex) {
-      osnapIndex.rebuild(layout)
-      for (const [name, visible] of layerVisible) {
-        osnapIndex.setLayerHidden(name, visible === false)
+      // Defer rebuild when ACEO sidecars are still pending — tessellating all
+      // line/mesh batches first would freeze the UI and delay Network fetches.
+      const layoutRef = packageSession?.manifest.layouts.find(
+        item => item.btrId === layout.btrId
+      )
+      const pendingOsnap =
+        packageSession != null &&
+        measureEnabled &&
+        !packageSession.loadedOsnapLayouts.has(layout.btrId) &&
+        (layoutRef?.osnapChunkIds?.length ?? 0) > 0
+      if (!pendingOsnap) {
+        // Hybrid rebuild needs resident lineBatches when ACEO has no lines.
+        const workEstimate = estimateOsnapRebuildWork(layout)
+        if (workEstimate > 8000) {
+          statusEl.textContent = i18n.t('status.buildingOsnap')
+          await accmYieldForPaint()
+        }
+        try {
+          await osnapIndex.rebuildAsync(layout, osnapIndexYield)
+          for (const [name, visible] of layerVisible) {
+            osnapIndex.setLayerHidden(name, visible === false)
+          }
+        } finally {
+          clearStatusBar()
+        }
       }
     }
 
@@ -1294,14 +2188,36 @@ async function startViewer(): Promise<void> {
 
     measure?.syncLayoutVisibility()
     markup?.syncLayoutVisibility()
-    layoutMenuRef.current?.refresh()
+    mainToolbarRef.current?.refresh()
     recomputeOsnapThresholdWcs()
     bumpSnapCacheKey()
     render()
+
+    // OSNAP last: geometry is already on screen.
+    if (packageSession && measureEnabled) {
+      try {
+        await loadPackageLayoutOsnap(layout)
+        if (
+          !layout.isModelSpace &&
+          hasPaperViewports &&
+          modelLayout
+        ) {
+          await loadPackageLayoutOsnap(modelLayout)
+        }
+        await rebuildOsnapForLoadedGeometry()
+        bumpSnapCacheKey()
+        render()
+        measure?.refreshIdleStatus()
+      } catch (error) {
+        statusEl.textContent = i18n.t('status.loadFailed', {
+          error: String(error)
+        })
+      }
+    }
   }
 
   controls.addEventListener('change', () => {
-    acexCameraZoomUniform.value = camera.zoom
+    AcExCameraZoomUniform.value = camera.zoom
     recomputeOsnapThresholdWcs()
     bumpSnapCacheKey()
     render()
@@ -1326,12 +2242,12 @@ async function startViewer(): Promise<void> {
 
   setupToolPointerInput({
     domElement: renderer.domElement,
+    root,
+    screenToWcs,
     getMeasure: () => measure,
     getMarkup: () => markup,
     getNavTools: () => navToolsRef.current,
-    render,
-    refreshSnapLoupeHud,
-    hideSnapLoupe
+    render
   })
 
   setupPanCursorFeedback(
@@ -1343,171 +2259,7 @@ async function startViewer(): Promise<void> {
     event.preventDefault()
   })
 
-  const handleToolbarAction = (button: HTMLElement) => {
-    const action = button.getAttribute('data-action')
-    if (action === 'select' || action === 'pan' || action === 'zoom-window') {
-      navToolsRef.current?.setMode(action)
-      if (action === 'zoom-window') {
-        setAcExHtmlParentChildIcon('mlcad-zoom-menu-btn', button)
-      }
-      return
-    }
-    if (action === 'fit') {
-      navToolsRef.current?.cancelZoomWindow()
-      measure?.cancelMode()
-      markup?.cancelMode()
-      setAcExHtmlParentChildIcon('mlcad-zoom-menu-btn', button)
-      fit()
-    } else if (action === 'zoom-original') {
-      navToolsRef.current?.cancelZoomWindow()
-      measure?.cancelMode()
-      markup?.cancelMode()
-      setAcExHtmlParentChildIcon('mlcad-zoom-menu-btn', button)
-      restoreOriginalView()
-    } else if (action === 'clear-measurements') {
-      measure?.clearAll()
-    } else if (action === 'measure-visibility') {
-      measure?.toggleVisible()
-    } else if (action === 'measure-import') {
-      measure?.importSidecar()
-    } else if (action === 'measure-export') {
-      measure?.exportSidecar()
-    } else if (action === 'clear-markups') {
-      markup?.clearAll()
-    } else if (action === 'markup-visibility') {
-      markup?.toggleVisible()
-    } else if (action === 'markup-import') {
-      markup?.importSidecar()
-    } else if (action === 'markup-export') {
-      markup?.exportSidecar()
-    } else if (action === 'markup-panel') {
-      measure?.cancelMode()
-      markup?.cancelMode()
-      const drawer = document.getElementById('mlcad-review-drawer')
-      reviewPanel?.setOpen(Boolean(drawer?.hidden))
-    } else if (action === 'measure-panel') {
-      measure?.cancelMode()
-      markup?.cancelMode()
-      const drawer = document.getElementById('mlcad-measure-drawer')
-      measurePanel?.setOpen(Boolean(drawer?.hidden))
-    } else if (action === 'measure') {
-      markup?.cancelMode()
-      const mode = button.getAttribute(
-        'data-measure-mode'
-      ) as AcExMeasureMode | null
-      if (mode) {
-        measure?.setMode(mode)
-      }
-    } else if (action === 'markup') {
-      measure?.cancelMode()
-      const mode = button.getAttribute(
-        'data-markup-mode'
-      ) as AcExMarkupMode | null
-      if (mode) {
-        markup?.setMode(mode)
-      }
-    } else if (action === 'toggle-theme') {
-      const current =
-        (document.documentElement.getAttribute('data-mlcad-theme') as
-          | AcExHtmlTheme
-          | null) ?? 'dark'
-      const next: AcExHtmlTheme = current === 'dark' ? 'light' : 'dark'
-      applyHtmlTheme(next)
-      i18n.applyToDocument()
-    } else if (action === 'switch-bg') {
-      switchDrawingBackground()
-    }
-  }
-
-  document
-    .querySelectorAll('#mlcad-toolbar button[data-action]')
-    .forEach(button => {
-      button.addEventListener('click', () => {
-        const action = button.getAttribute('data-action')
-        // Parent menu buttons are handled by the flyout controller.
-        if (
-          action === 'measure-menu' ||
-          action === 'markup-menu' ||
-          action === 'snap-menu' ||
-          action === 'zoom-menu' ||
-          action === 'layout-menu' ||
-          action === 'settings-menu' ||
-          action === 'locale-menu'
-        ) {
-          return
-        }
-        handleToolbarAction(button as HTMLElement)
-      })
-    })
-
-  const toolbarFlyouts = setupAcExHtmlToolbarFlyouts({
-    onItemClick: handleToolbarAction,
-    onLocaleSelect: locale => i18n.setLocale(locale),
-    getLocale: () => i18n.locale,
-    onStripChange: () => {
-      drawerSheets.syncInset()
-      resize()
-      recomputeOsnapThresholdWcs()
-      bumpSnapCacheKey()
-      render()
-    },
-    onClose: menuId => {
-      if (menuId === 'snap') {
-        measureSettingsRef.current?.close()
-      }
-      if (acExHtmlIsPhoneLayout()) return
-      if (menuId === 'measure') {
-        measurePanel?.close()
-      }
-      if (menuId === 'review') {
-        reviewPanel?.close()
-      }
-    },
-    onOpen: (menuId, menuRoot) => {
-      layoutMenuRef.current?.close()
-      if (acExHtmlIsPhoneLayout()) {
-        closeLayerDrawer()
-        reviewPanel?.close()
-        measurePanel?.close()
-      }
-      if (menuId === 'measure' && measure) {
-        measure.setVisible(measure.visible)
-        menuRoot.querySelectorAll('[data-measure-mode]').forEach(btn => {
-          const mode = btn.getAttribute('data-measure-mode')
-          btn.classList.toggle('active', mode === measure.mode)
-        })
-      } else if (menuId === 'review' && markup) {
-        markup.setVisible(markup.visible)
-        menuRoot.querySelectorAll('[data-markup-mode]').forEach(btn => {
-          const mode = btn.getAttribute('data-markup-mode')
-          btn.classList.toggle('active', mode === markup.mode)
-        })
-      } else if (menuId === 'zoom') {
-        const zoomWindow = navToolsRef.current?.getMode() === 'zoom-window'
-        menuRoot.querySelectorAll('[data-action]').forEach(btn => {
-          btn.classList.toggle(
-            'active',
-            btn.getAttribute('data-action') === 'zoom-window' && zoomWindow
-          )
-        })
-      }
-    }
-  })
-  toolbarFlyoutsRef.current = toolbarFlyouts
-
-  layoutMenuRef.current = setupAcExHtmlLayoutMenu({
-    layouts: snapshot.layouts,
-    getActiveLayoutBtrId: () => layout.btrId,
-    onSelect: switchLayout,
-    closeOtherFlyouts: () => {
-      toolbarFlyouts.close()
-      if (acExHtmlIsPhoneLayout()) {
-        closeLayerDrawer()
-        reviewPanel?.close()
-        measurePanel?.close()
-      }
-    }
-  })
+  mainToolbarRef.current?.setDocumentReady(true)
 
   i18n.setOnChange(() => {
     readyStatus = ''
@@ -1521,9 +2273,7 @@ async function startViewer(): Promise<void> {
     sessionPanel?.refreshLabels()
     measureSettingsRef.current?.refreshLabels()
     sessionDrawStyleRef.current?.refreshLabels()
-    toolbarCollapse.refreshLabels()
-    toolbarFlyouts?.refreshLabels()
-    navToolsRef.current?.refreshLabels()
+    mainToolbarRef.current?.refreshLabels()
     expiryMonitor?.refreshLabels()
     // Re-apply visibility button label after i18n DOM refresh.
     if (markup) {
@@ -1534,11 +2284,14 @@ async function startViewer(): Promise<void> {
     }
     // Theme button keys may have been overwritten by applyToDocument; re-sync.
     applyHtmlTheme(
-      (document.documentElement.getAttribute('data-mlcad-theme') as
-        | AcExHtmlTheme
-        | null) ?? 'dark'
+      (document.documentElement.getAttribute(
+        'data-mlcad-theme'
+      ) as AcExHtmlTheme | null) ?? 'dark'
     )
     i18n.applyToDocument()
+    mainToolbarRef.current?.refresh()
+    // Refresh rebuilds toolbar DOM; restore nav pressed state afterward.
+    navToolsRef.current?.syncButtons()
     sessionDrawStyleRef.current?.refresh()
   })
 
@@ -1581,10 +2334,15 @@ async function startViewer(): Promise<void> {
 
   window.addEventListener('resize', () => {
     resize()
-    toolbarFlyouts.syncLayout()
+    mainToolbarRef.current?.syncLayout()
     recomputeOsnapThresholdWcs()
     bumpSnapCacheKey()
     render()
+  })
+
+  window.addEventListener('pagehide', () => {
+    mainToolbarRef.current?.destroy()
+    mainToolbarRef.current = null
   })
 
   resize()
@@ -1600,7 +2358,9 @@ async function startViewer(): Promise<void> {
   lastViewByLayout.set(layout.btrId, initialView)
   // Shared typed arrays back the snapshot and THREE attributes. Releasing
   // them would prevent switching to other layouts later in this session.
-  if (!canSwitchLayouts) {
+  // Defer CPU buffer release until after hybrid OSNAP when measure is on —
+  // line snap is rebuilt from resident lineBatches.
+  if (!canSwitchLayouts && !packageSession && !measureEnabled) {
     releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
     releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
     releaseSnapshotBatchBuffers(snapshot)
@@ -1616,7 +2376,69 @@ async function startViewer(): Promise<void> {
       }
     })
   }
+  // Reveal the canvas before package chunks / OSNAP indexing finish so the
+  // drawing paints while background work continues.
   hideLoading()
+
+  if (!packageSession && measureEnabled) {
+    try {
+      await rebuildOsnapForLoadedGeometry()
+      recomputeOsnapThresholdWcs()
+      bumpSnapCacheKey()
+      measure?.refreshIdleStatus()
+      render()
+    } catch (error) {
+      showViewerError(i18n.t('status.loadFailed', { error: String(error) }))
+    }
+    if (!canSwitchLayouts) {
+      releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
+      releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
+      releaseSnapshotBatchBuffers(snapshot)
+    }
+  }
+
+  if (packageSession) {
+    try {
+      const firstPaintLayouts: AcExLayoutSnapshot[] = [layout]
+      if (!layout.isModelSpace && hasPaperViewports && modelLayout) {
+        firstPaintLayouts.push(modelLayout)
+      }
+      for (const target of firstPaintLayouts) {
+        await loadPackageLayoutGeometry(target)
+      }
+      layoutExtents = resolveLayoutViewExtents(
+        layout,
+        snapshot.meta.viewExtents ?? snapshot.meta.extents
+      )
+      layerPanel?.syncLayerZoomButtons()
+      recomputeOsnapThresholdWcs()
+      bumpSnapCacheKey()
+      measure?.refreshIdleStatus()
+      render()
+
+      // ACEO now holds curves/points only (lines come from geometry batches).
+      // Load the small catalog first, then build a hybrid index while CPU
+      // lineBatches are still resident — before releaseSnapshotBatchBuffers.
+      if (measureEnabled) {
+        for (const target of firstPaintLayouts) {
+          await loadPackageLayoutOsnap(target)
+        }
+        await rebuildOsnapForLoadedGeometry()
+        recomputeOsnapThresholdWcs()
+        bumpSnapCacheKey()
+        measure?.refreshIdleStatus()
+        render()
+      }
+
+      if (!canSwitchLayouts) {
+        releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
+        releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
+        releaseSnapshotBatchBuffers(snapshot)
+      }
+    } catch (error) {
+      showViewerError(i18n.t('status.loadFailed', { error: String(error) }))
+    }
+  }
 }
 
 interface AcExLayerRowRefs {
@@ -1624,76 +2446,6 @@ interface AcExLayerRowRefs {
   name: string
   /** Per-layer zoom button whose `title` / `aria-label` are retranslated. */
   zoomBtn: HTMLButtonElement
-}
-
-/** Handles returned by {@link setupToolbarCollapse} for locale-driven UI updates. */
-interface AcExToolbarCollapseController {
-  refreshLabels: () => void
-}
-
-function setupToolbarCollapse(
-  i18n: AcExHtmlI18n,
-  closeStrips?: () => void
-): AcExToolbarCollapseController {
-  const sidebar = document.getElementById('mlcad-sidebar')
-  const toggleBtn = document.getElementById('mlcad-toolbar-toggle')
-  if (!sidebar || !toggleBtn) {
-    return { refreshLabels: () => {} }
-  }
-
-  let collapsed = false
-
-  const closeSidePanels = () => {
-    const layerDrawer = document.getElementById('mlcad-layer-drawer')
-    const layersBtn = document.getElementById('mlcad-layers-btn')
-
-    if (layerDrawer) layerDrawer.hidden = true
-    layersBtn?.classList.remove('active')
-    layersBtn?.setAttribute('aria-expanded', 'false')
-
-    const reviewDrawer = document.getElementById('mlcad-review-drawer')
-    if (reviewDrawer) reviewDrawer.hidden = true
-    document.querySelectorAll('[data-action="markup-panel"]').forEach(btn => {
-      btn.classList.remove('active')
-      btn.setAttribute('aria-pressed', 'false')
-    })
-
-    const measureDrawer = document.getElementById('mlcad-measure-drawer')
-    if (measureDrawer) measureDrawer.hidden = true
-    document.querySelectorAll('[data-action="measure-panel"]').forEach(btn => {
-      btn.classList.remove('active')
-      btn.setAttribute('aria-pressed', 'false')
-    })
-
-    closeStrips?.()
-  }
-
-  const syncToggle = () => {
-    sidebar.classList.toggle('mlcad-sidebar--collapsed', collapsed)
-    toggleBtn.innerHTML = collapsed
-      ? acExHtmlIcons.chevronDown
-      : acExHtmlIcons.chevronUp
-    toggleBtn.setAttribute('aria-expanded', String(!collapsed))
-    toggleBtn.dataset.i18nKey = collapsed
-      ? 'toolbar.expand'
-      : 'toolbar.collapse'
-    const label = i18n.t(collapsed ? 'toolbar.expand' : 'toolbar.collapse')
-    toggleBtn.setAttribute('title', label)
-    toggleBtn.setAttribute('aria-label', label)
-  }
-
-  toggleBtn.addEventListener('click', event => {
-    event.stopPropagation()
-    collapsed = !collapsed
-    if (collapsed) closeSidePanels()
-    syncToggle()
-  })
-
-  syncToggle()
-
-  return {
-    refreshLabels: () => syncToggle()
-  }
 }
 
 /** Dependencies passed into {@link setupLayerPanel}. */
@@ -1732,6 +2484,12 @@ interface AcExLayerPanelController {
   refreshLayerLabels: () => void
   /** Enables/disables per-layer zoom after the active layout changes. */
   syncLayerZoomButtons: () => void
+  /** Opens or closes the layer drawer. */
+  setOpen: (open: boolean) => void
+  /** Closes the layer drawer. */
+  close: () => void
+  /** Whether the layer drawer is currently open. */
+  isOpen: () => boolean
 }
 
 function setupLayerPanel(
@@ -1759,7 +2517,7 @@ function setupLayerPanel(
   const layerClose = document.getElementById('mlcad-layer-close')
   const showAllBtn = document.getElementById('mlcad-layer-show-all')
   const hideAllBtn = document.getElementById('mlcad-layer-hide-all')
-  if (!layersBtn || !layerDrawer || !layerList) return null
+  if (!layerDrawer || !layerList) return null
 
   const layerRows: AcExLayerRowRefs[] = []
 
@@ -1837,7 +2595,7 @@ function setupLayerPanel(
       zoomBtn.setAttribute('aria-label', label)
     }
     updateZoomLabels()
-    zoomBtn.innerHTML = acExHtmlIcons.zoomBox
+    zoomBtn.innerHTML = AcExHtmlIcons.zoomBox
     const extents = layerExtents.get(name)
     zoomBtn.disabled = !extents
     zoomBtn.addEventListener('click', event => {
@@ -1861,14 +2619,13 @@ function setupLayerPanel(
       onPhoneOpen?.(layerDrawer)
     }
     layerDrawer.hidden = !open
-    layersBtn.classList.toggle('active', open)
-    layersBtn.setAttribute('aria-expanded', String(open))
+    layersBtn?.classList.toggle('active', open)
+    layersBtn?.setAttribute('aria-expanded', String(open))
   }
 
-  layersBtn.addEventListener('click', event => {
-    event.stopPropagation()
-    setDrawerOpen(layerDrawer.hidden)
-  })
+  // Layer open/close is driven by MainToolbar `layer` action via
+  // {@link AcExHtmlMainToolbarHandlers.toggleLayerDrawer}; do not bind the
+  // annotated `#mlcad-layers-btn` click here (would double-toggle).
 
   layerClose?.addEventListener('click', () => setDrawerOpen(false))
   layerDrawer
@@ -1899,7 +2656,10 @@ function setupLayerPanel(
       for (const row of layerRows) {
         row.zoomBtn.disabled = !layerExtents.get(row.name)
       }
-    }
+    },
+    setOpen: setDrawerOpen,
+    close: () => setDrawerOpen(false),
+    isOpen: () => !layerDrawer.hidden
   }
 }
 
@@ -1984,22 +2744,23 @@ function createOrbitControls(
   controls.enableRotate = false
   controls.zoomSpeed = 5
   controls.zoomToCursor = true
-  setOrbitLeftButtonPan(controls, true)
+  setOrbitPanButtons(controls, { leftMousePan: true, oneFingerPan: true })
   controls.update()
   return controls
 }
 
 /**
- * Idle pan mode: left + middle mouse pan and one-finger touch pan.
- * Select / zoom-window / drawing tools: middle mouse only; one-finger touch is
- * cleared so it cannot pan — matches {@link AcTrLayoutView} mouse switch and
- * keeps two-finger pinch/pan available.
+ * Configures OrbitControls mouse and touch pan independently.
+ *
+ * Idle pan: left mouse + one-finger touch. Drawing tools: one-finger touch
+ * pan until precise capture, but no left-mouse pan so clicks still pick.
+ * Select / loupe: middle mouse and two-finger gestures only.
  */
-function setOrbitLeftButtonPan(
+function setOrbitPanButtons(
   controls: OrbitControls,
-  enableLeftPan: boolean
+  options: { leftMousePan: boolean; oneFingerPan: boolean }
 ): void {
-  controls.mouseButtons = enableLeftPan
+  controls.mouseButtons = options.leftMousePan
     ? {
         LEFT: THREE.MOUSE.PAN,
         MIDDLE: THREE.MOUSE.PAN
@@ -2007,7 +2768,7 @@ function setOrbitLeftButtonPan(
     : {
         MIDDLE: THREE.MOUSE.PAN
       }
-  controls.touches = enableLeftPan
+  controls.touches = options.oneFingerPan
     ? {
         ONE: THREE.TOUCH.PAN,
         TWO: THREE.TOUCH.DOLLY_PAN
@@ -2048,6 +2809,10 @@ function setupPanCursorFeedback(
 interface AcExToolPointerInputOptions {
   /** Canvas (or host) that receives pointer events. */
   domElement: HTMLElement
+  /** Overlay host for the selection rubber band. */
+  root: HTMLElement
+  /** Converts a client point to world XY. */
+  screenToWcs: (clientX: number, clientY: number) => { x: number; y: number }
   /** Active measure controller, or `null` when measure is disabled. */
   getMeasure: () => AcExMeasureController | null
   /** Active markup controller, or `null` when markup is disabled. */
@@ -2056,40 +2821,120 @@ interface AcExToolPointerInputOptions {
   getNavTools: () => ReturnType<typeof setupAcExHtmlNavTools> | null
   /** Redraws the scene, overlays, paper viewports, and snap loupe. */
   render: () => void
-  /**
-   * Shows the snap-loupe HUD around a client sample while a long-press is
-   * active.
-   *
-   * @param clientX - Sample X in client CSS pixels.
-   * @param clientY - Sample Y in client CSS pixels.
-   */
-  refreshSnapLoupeHud: (clientX: number, clientY: number) => void
-  /** Hides the snap-loupe HUD and clears the overlay sample. */
-  hideSnapLoupe: () => void
 }
 
 /**
  * Left-button tool picking / selection on capture so selection can block
- * OrbitControls pan; while a tool is active left pan is already toggled off.
- * Also drives zoom-window picks in both view and measure modes.
+ * OrbitControls pan. While a drawing tool is active, mouse left-pan is off
+ * (clicks pick) but one-finger touch pan stays on until the snap loupe opens.
  * Touch drawing tools defer commit until pointerup so a long-press can open
- * the snap loupe.
+ * the loupe; jig preview also waits until that precise-capture phase.
  *
- * @param options - Canvas, tool accessors, render callback, and loupe HUD.
+ * The snap loupe is driven through {@link acexRefreshMobileSnapLoupe} so
+ * drawing picks and overlay grip drags share one implementation.
+ *
+ * @param options - Canvas, tool accessors, and render callback.
  */
 function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
   const {
     domElement,
+    root,
+    screenToWcs,
     getMeasure,
     getMarkup,
     getNavTools,
-    render,
-    refreshSnapLoupeHud,
-    hideSnapLoupe
+    render
   } = options
   let pendingMove: { clientX: number; clientY: number } | null = null
   let moveRaf = 0
   const touchSession = new AcExTouchPointSession()
+  const touchPickHudHost: AcExTouchPickHudHost = {
+    refreshSnapLoupe: (clientX, clientY) => {
+      acexRefreshMobileSnapLoupe(clientX, clientY)
+    },
+    hideSnapLoupe: () => {
+      acexHideMobileSnapLoupe()
+    },
+    refreshSimulatedCursor: (clientX, clientY) => {
+      acexRefreshSimulatedMouseCursor(root, clientX, clientY)
+    },
+    hideSimulatedCursor: () => {
+      acexHideSimulatedMouseCursor()
+    }
+  }
+  const hideTouchPreciseHud = () => {
+    acexHideMobileSnapLoupe()
+    acexHideSimulatedMouseCursor()
+  }
+  const applyTouchPreciseSample = (fingerX: number, fingerY: number) => {
+    const sample = acexTouchPickStrategy().mapFingerToSample(fingerX, fingerY)
+    previewDrawingPoint(sample.x, sample.y)
+    acexTouchPickStrategy().showPreciseHud(
+      touchPickHudHost,
+      sample.x,
+      sample.y
+    )
+  }
+  /** Idle box-select / zoom-window rubber band after a long-press or mouse down. */
+  let boxGesture: {
+    kind: 'select' | 'zoom-window'
+    pointerId: number
+    pointerType: string
+    startX: number
+    startY: number
+    activated: boolean
+  } | null = null
+  const releaseBoxPointerCapture = (pointerId: number) => {
+    try {
+      if (domElement.hasPointerCapture(pointerId)) {
+        domElement.releasePointerCapture(pointerId)
+      }
+    } catch {
+      // Pointer may already be released.
+    }
+  }
+
+  const selectionRect = document.createElement('div')
+  selectionRect.id = 'mlcad-selection-rect'
+  selectionRect.hidden = true
+  root.appendChild(selectionRect)
+
+  const hideSelectionRect = () => {
+    selectionRect.hidden = true
+  }
+
+  const updateSelectionRect = (
+    startX: number,
+    startY: number,
+    clientX: number,
+    clientY: number,
+    kind: 'select' | 'zoom-window'
+  ) => {
+    const left = Math.min(startX, clientX)
+    const top = Math.min(startY, clientY)
+    selectionRect.style.left = `${left}px`
+    selectionRect.style.top = `${top}px`
+    selectionRect.style.width = `${Math.abs(clientX - startX)}px`
+    selectionRect.style.height = `${Math.abs(clientY - startY)}px`
+    if (kind === 'select') {
+      selectionRect.dataset.mode = acexSelectionModeFromDrag(startX, clientX)
+    } else {
+      delete selectionRect.dataset.mode
+    }
+    selectionRect.hidden = false
+  }
+
+  /**
+   * Drops a coalesced pointer-move frame so it cannot revive OSNAP / jig
+   * after a successful pick (or aborted touch gesture).
+   */
+  const cancelPendingPointerMove = () => {
+    if (moveRaf !== 0) {
+      cancelAnimationFrame(moveRaf)
+      moveRaf = 0
+    }
+    pendingMove = null
+  }
 
   /**
    * Whether measure or markup is currently drawing.
@@ -2106,6 +2951,9 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
    * @param clientY - Sample Y in client CSS pixels.
    */
   const commitDrawingPoint = (clientX: number, clientY: number) => {
+    // A move sample queued before this pick must not re-show the OSNAP glyph
+    // after handlePointerDown clears it.
+    cancelPendingPointerMove()
     const measure = getMeasure()
     const markup = getMarkup()
     if (measure?.isActive) {
@@ -2144,7 +2992,7 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
   }
 
   /**
-   * Applies the latest coalesced pointer-move sample: tool preview, loupe HUD
+   * Applies the latest coalesced pointer-move sample: tool preview, precise HUD
    * while long-pressing, or zoom-window rubber band.
    */
   const flushPointerMove = () => {
@@ -2155,22 +3003,117 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
     const measure = getMeasure()
     const markup = getMarkup()
     if (measure?.isActive) {
-      measure.handlePointerMove(sample.clientX, sample.clientY)
       if (touchSession.isLoupe) {
-        refreshSnapLoupeHud(sample.clientX, sample.clientY)
+        applyTouchPreciseSample(sample.clientX, sample.clientY)
+        render()
+        return
       }
+      measure.handlePointerMove(sample.clientX, sample.clientY)
       render()
       return
     }
     if (markup?.isActive) {
-      markup.handlePointerMove(sample.clientX, sample.clientY)
       if (touchSession.isLoupe) {
-        refreshSnapLoupeHud(sample.clientX, sample.clientY)
+        applyTouchPreciseSample(sample.clientX, sample.clientY)
+        render()
+        return
       }
+      markup.handlePointerMove(sample.clientX, sample.clientY)
       render()
       return
     }
+    if (boxGesture?.activated) {
+      if (boxGesture.kind === 'zoom-window') {
+        getNavTools()?.handlePointerMove(sample.clientX, sample.clientY)
+      } else {
+        updateSelectionRect(
+          boxGesture.startX,
+          boxGesture.startY,
+          sample.clientX,
+          sample.clientY,
+          boxGesture.kind
+        )
+      }
+      return
+    }
     getNavTools()?.handlePointerMove(sample.clientX, sample.clientY)
+  }
+
+  const idleNavMode = (): 'select' | 'pan' | 'zoom-window' | null => {
+    if (isDrawingToolActive()) return null
+    return getNavTools()?.getMode() ?? null
+  }
+
+  const applyClickSelect = (clientX: number, clientY: number): boolean => {
+    const markup = getMarkup()
+    const measure = getMeasure()
+    if (markup?.handleSelectionPointerDown(clientX, clientY)) {
+      if (markup.hasSelection) measure?.clearSelection()
+      render()
+      return true
+    }
+    if (measure?.handleSelectionPointerDown(clientX, clientY)) {
+      if (measure.hasSelection) markup?.clearSelection()
+      render()
+      return true
+    }
+    return false
+  }
+
+  const applyBoxSelect = (
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number
+  ) => {
+    const a = screenToWcs(startX, startY)
+    const b = screenToWcs(endX, endY)
+    const box: AcExExtents = {
+      minX: Math.min(a.x, b.x),
+      minY: Math.min(a.y, b.y),
+      maxX: Math.max(a.x, b.x),
+      maxY: Math.max(a.y, b.y)
+    }
+    const mode = acexSelectionModeFromDrag(startX, endX)
+    getMarkup()?.handleSelectionBox(box, mode)
+    getMeasure()?.handleSelectionBox(box, mode)
+    render()
+  }
+
+  const finishBoxGesture = (
+    clientX: number,
+    clientY: number,
+    commit: boolean
+  ) => {
+    const gesture = boxGesture
+    boxGesture = null
+    hideSelectionRect()
+    acexSetMobileSnapLoupePreciseCapture(false)
+    if (gesture) releaseBoxPointerCapture(gesture.pointerId)
+    // Compat mouse after touch, not a real mouse box-select.
+    if (gesture?.pointerType === 'touch') acexSinkFollowingClick()
+    if (!gesture) return
+    if (!commit || !gesture.activated) {
+      if (gesture.kind === 'zoom-window') {
+        getNavTools()?.cancelZoomWindow()
+      }
+      return
+    }
+    const moved =
+      Math.hypot(clientX - gesture.startX, clientY - gesture.startY) >= 8
+    if (gesture.kind === 'zoom-window') {
+      if (moved) {
+        getNavTools()?.handlePointerDown(clientX, clientY)
+      } else {
+        getNavTools()?.cancelZoomWindow()
+      }
+      return
+    }
+    if (moved) {
+      applyBoxSelect(gesture.startX, gesture.startY, clientX, clientY)
+    } else {
+      applyClickSelect(clientX, clientY)
+    }
   }
 
   /**
@@ -2184,18 +3127,148 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
     if (event.pointerType !== 'touch') return
     if (touchSession.phase === 'idle') return
     if (event.pointerId !== touchSession.pointerId) return
+    if (boxGesture) {
+      const gesture = boxGesture
+      const wasActivated = gesture.activated
+      cancelPendingPointerMove()
+      if (!commit) {
+        if (!wasActivated && touchSession.isPicking) {
+          return
+        }
+        touchSession.cancel()
+        finishBoxGesture(event.clientX, event.clientY, false)
+        render()
+        return
+      }
+      const action = touchSession.end()
+      if (action === 'ignore') {
+        finishBoxGesture(event.clientX, event.clientY, false)
+        render()
+        return
+      }
+      if (!wasActivated) {
+        boxGesture = null
+        hideSelectionRect()
+        acexSetMobileSnapLoupePreciseCapture(false)
+        releaseBoxPointerCapture(gesture.pointerId)
+        acexSinkFollowingClick()
+        if (gesture.kind === 'select') {
+          applyClickSelect(event.clientX, event.clientY)
+        }
+        return
+      }
+      finishBoxGesture(event.clientX, event.clientY, true)
+      return
+    }
+    acexSetMobileSnapLoupePreciseCapture(false)
+    // Loupe moves coalesce into RAF; cancel before commit/abort so a late
+    // flush cannot set live pointer and bring the OSNAP glyph back.
+    cancelPendingPointerMove()
+    // Chrome synthesizes mouse pointerdown+click after touchup near the finger.
+    // Without this, a two-point tool would commit the second point immediately
+    // and clear the confirmed-point plus mark.
+    acexSinkFollowingClick()
     if (!commit) {
       touchSession.cancel()
-      hideSnapLoupe()
+      hideTouchPreciseHud()
       render()
       return
     }
+    const wasPrecise = touchSession.isLoupe
     const action = touchSession.end()
-    hideSnapLoupe()
+    hideTouchPreciseHud()
     if (action === 'commit') {
-      commitDrawingPoint(event.clientX, event.clientY)
+      if (wasPrecise) {
+        const sample = acexTouchPickStrategy().mapFingerToSample(
+          event.clientX,
+          event.clientY
+        )
+        commitDrawingPoint(sample.x, sample.y)
+      } else {
+        commitDrawingPoint(event.clientX, event.clientY)
+      }
     } else {
       render()
+    }
+  }
+
+  const idlePointerHost: AcExIdlePointerHost = {
+    navMode: () => idleNavMode(),
+    shouldIgnoreCompatMouse: () => acexShouldIgnoreCompatMouse(),
+    startTouchBox: (kind, event) => {
+      // preventDefault only: do not stopImmediatePropagation so OrbitControls
+      // still receives pointerdown and can pan if the finger moves first.
+      event.preventDefault()
+      boxGesture = {
+        kind,
+        pointerId: event.pointerId,
+        pointerType: 'touch',
+        startX: event.clientX,
+        startY: event.clientY,
+        activated: false
+      }
+      touchSession.start(event.pointerId, event.clientX, event.clientY, () => {
+        if (!boxGesture || boxGesture.pointerId !== event.pointerId) return
+        boxGesture.activated = true
+        boxGesture.startX = touchSession.x
+        boxGesture.startY = touchSession.y
+        acexSetMobileSnapLoupePreciseCapture(true)
+        if (kind === 'zoom-window') {
+          getNavTools()?.handlePointerDown(touchSession.x, touchSession.y)
+        } else {
+          updateSelectionRect(
+            touchSession.x,
+            touchSession.y,
+            touchSession.x,
+            touchSession.y,
+            kind
+          )
+        }
+      })
+      domElement.setPointerCapture(event.pointerId)
+    },
+    startMouseBox: event => {
+      event.stopImmediatePropagation()
+      boxGesture = {
+        kind: 'select',
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        startX: event.clientX,
+        startY: event.clientY,
+        activated: true
+      }
+      try {
+        domElement.setPointerCapture(event.pointerId)
+      } catch {
+        // Capture is best-effort so the rubber band tracks off-canvas.
+      }
+      updateSelectionRect(
+        event.clientX,
+        event.clientY,
+        event.clientX,
+        event.clientY,
+        'select'
+      )
+    },
+    finishMouseBox: (event, commit) => {
+      if (!boxGesture || event.pointerId !== boxGesture.pointerId) {
+        return false
+      }
+      if (boxGesture.pointerType === 'touch') return false
+      finishBoxGesture(event.clientX, event.clientY, commit)
+      return true
+    },
+    handleNavPointerDown: event => {
+      if (getNavTools()?.handlePointerDown(event.clientX, event.clientY)) {
+        event.stopImmediatePropagation()
+        return true
+      }
+      return false
+    },
+    applyClickSelect: event => {
+      if (!applyClickSelect(event.clientX, event.clientY)) return false
+      event.stopImmediatePropagation()
+      return true
     }
   }
 
@@ -2203,18 +3276,32 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
     'pointerdown',
     event => {
       if (event.button !== 0) return
+      if (event.pointerType !== 'touch' && acexShouldIgnoreCompatMouse()) {
+        event.stopImmediatePropagation()
+        return
+      }
       const measure = getMeasure()
       const markup = getMarkup()
       if (event.pointerType === 'touch' && isDrawingToolActive()) {
-        touchSession.start(event.pointerId, event.clientX, event.clientY, () => {
-          refreshSnapLoupeHud(touchSession.x, touchSession.y)
-          render()
-        })
-        previewDrawingPoint(event.clientX, event.clientY)
+        // Match cad-simple-viewer: keep the OS from turning a still finger into
+        // scroll / context-menu `pointercancel` before the precise timer fires.
+        event.preventDefault()
+        touchSession.start(
+          event.pointerId,
+          event.clientX,
+          event.clientY,
+          () => {
+            // Precise capture only: lock pan and start jig / HUD preview.
+            acexSetMobileSnapLoupePreciseCapture(true)
+            applyTouchPreciseSample(touchSession.x, touchSession.y)
+            render()
+          }
+        )
         domElement.setPointerCapture(event.pointerId)
         return
       }
       if (measure?.isActive) {
+        cancelPendingPointerMove()
         if (measure.handlePointerDown(event.clientX, event.clientY)) {
           if (measure.hasSelection) markup?.clearSelection()
           render()
@@ -2222,28 +3309,14 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
         return
       }
       if (markup?.isActive) {
+        cancelPendingPointerMove()
         if (markup.handlePointerDown(event.clientX, event.clientY)) {
           if (markup.hasSelection) measure?.clearSelection()
           render()
         }
         return
       }
-      const nav = getNavTools()
-      if (nav?.handlePointerDown(event.clientX, event.clientY)) {
-        event.stopImmediatePropagation()
-        return
-      }
-      if (markup?.handleSelectionPointerDown(event.clientX, event.clientY)) {
-        event.stopImmediatePropagation()
-        if (markup.hasSelection) measure?.clearSelection()
-        render()
-        return
-      }
-      if (measure?.handleSelectionPointerDown(event.clientX, event.clientY)) {
-        event.stopImmediatePropagation()
-        if (measure.hasSelection) markup?.clearSelection()
-        render()
-      }
+      acexIdlePointerStrategy().onPointerDown(event, idlePointerHost)
     },
     true
   )
@@ -2251,8 +3324,27 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
     const measure = getMeasure()
     const markup = getMarkup()
     const zoomWindow = getNavTools()?.getMode() === 'zoom-window'
-    if (event.pointerType === 'touch' && touchSession.isPicking) {
-      touchSession.move(event.clientX, event.clientY, false)
+    if (event.pointerType === 'touch' && touchSession.phase !== 'idle') {
+      if (event.pointerId !== touchSession.pointerId) return
+      // Movement before the loupe aborts the pick so OrbitControls can pan.
+      const moved = touchSession.move(event.clientX, event.clientY, true)
+      if (moved === 'panning') {
+        if (boxGesture) {
+          boxGesture = null
+          hideSelectionRect()
+        }
+        return
+      }
+      if (!touchSession.isLoupe) return
+    }
+    if (boxGesture && event.pointerId === boxGesture.pointerId) {
+      if (boxGesture.activated) {
+        pendingMove = { clientX: event.clientX, clientY: event.clientY }
+        if (moveRaf === 0) {
+          moveRaf = requestAnimationFrame(flushPointerMove)
+        }
+      }
+      return
     }
     if (!measure?.isActive && !markup?.isActive && !zoomWindow) return
     pendingMove = { clientX: event.clientX, clientY: event.clientY }
@@ -2261,9 +3353,13 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
     }
   })
   window.addEventListener('pointerup', event => {
+    if (acexIdlePointerStrategy().onPointerUp(event, idlePointerHost)) return
     endTouchPick(event, true)
   })
   window.addEventListener('pointercancel', event => {
+    if (acexIdlePointerStrategy().onPointerCancel(event, idlePointerHost)) {
+      return
+    }
     endTouchPick(event, false)
   })
 }
@@ -2304,7 +3400,14 @@ function createMeshObject(batch: AcExMeshBatch): THREE.Mesh | null {
       new THREE.BufferAttribute(batch.gradientPositions, 2)
     )
   }
-  const material = createViewerMeshMaterial(batch)
+  if (batch.uvs && batch.uvs.length >= 2) {
+    geometry.setAttribute('uv', new THREE.BufferAttribute(batch.uvs, 2))
+  }
+  const material = createViewerMeshMaterial(batch, {
+    onTextureLoad: () => {
+      requestViewerTextureRepaint?.()
+    }
+  })
   const object = new THREE.Mesh(geometry, material)
   applyBatchPose(object, {
     offset: batch.offset,
