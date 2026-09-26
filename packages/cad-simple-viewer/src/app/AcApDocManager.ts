@@ -581,6 +581,10 @@ export class AcApDocManager {
     const fontsUrl = this.resolveFontsBaseUrl()
     this._fontLoader.baseUrl = fontsUrl
     FontManager.instance.baseUrl = fontsUrl
+    // Always push the URL into AcTrMTextRenderer (workers). DefaultFontLoader
+    // skips onFontUrlChanged when the value equals its built-in default, which
+    // would leave workers on an unset/stale font base URL.
+    AcTrMTextRenderer.getInstance().setFontUrl(fontsUrl)
     acdbHostApplicationServices().workingDatabase = doc.database
 
     this._commandManager = new AcEdCommandStack()
@@ -592,9 +596,17 @@ export class AcApDocManager {
     const busyHost = options.busyIndicatorHost ?? view.container
     this._busyIndicatorHost = busyHost
     this._openFileProgress = new AcApOpenFileProgressController(busyHost)
-    this._openFileProgress.setSceneBusyGate(
-      () => this.openProgressView.isProcessingEntities
-    )
+    this._openFileProgress.setSceneBusyGate(() => {
+      // `progressiveRendering` controls both stages of an open: mid-open
+      // paints, and whether "Rendering drawing ..." waits for deferred
+      // text / INSERT glyphs. Deprecated `waitForTextGeometry` is ignored.
+      // Off (default): stay up until convert and glyph jobs are idle.
+      // On: hide once entity convert finishes.
+      if (!this.openProgressView.progressiveRendering) {
+        return this.openProgressView.isProcessingEntities
+      }
+      return this.openProgressView.isConvertingEntities
+    })
     this._openFileProgress.setOnHidden(() => this.onOpenProgressHidden())
     this._busyIndicator = new AcApBusyIndicator(busyHost)
     acapBindCommandServices({
@@ -699,8 +711,6 @@ export class AcApDocManager {
    */
   async destroy() {
     await this._pluginManager.unloadAllPlugins()
-    this._splitView?.stopAnimationLoop()
-    this._splitView = undefined
     for (const session of [...this._sessions]) {
       session.context.dispose()
       session.doc.destroy()
@@ -709,6 +719,9 @@ export class AcApDocManager {
       }
     }
     this._sessions = []
+    this._splitView?.dispose()
+    this._splitView = undefined
+    this._mainView.dispose()
     acapUninstallOpenFileDialog()
     acapDisposeNotificationService()
     AcTrMTextRenderer.resetInstance()
@@ -2103,9 +2116,10 @@ export class AcApDocManager {
       this.openProgressView.clear()
     }
     this.openProgressView.bindDrawDatabase(this.context.doc.database)
-    // Progressive convert/paint is gated by this flag (time-sliced yields in
-    // batchConvert). Camera auto-fit is started separately in onAfter when the
-    // open view mode uses zoom-to-fit — not for restored VPORT/saved views.
+    // `progressiveRendering` gates both stages: time-sliced mid-open paints
+    // in batchConvert, and whether the open overlay waits for deferred text.
+    // Camera auto-fit is started separately in onAfter when the open view
+    // mode uses zoom-to-fit — not for restored VPORT/saved views.
     this.openProgressView.progressiveRendering =
       options?.progressiveRendering ?? false
     this._openFileProgress.setSeeThroughOverlay(
@@ -2197,6 +2211,7 @@ export class AcApDocManager {
           view.beginProgressiveOpenFit()
         }
         view.zoomToFitDrawing()
+        view.requestOpenLineworkFrame()
       } else if (!isPaperSpaceActive) {
         const canvasAspect = view.width / Math.max(view.height, 1)
         // Restore *ACTIVE without comparing to header EXTMIN/EXTMAX.
@@ -2219,12 +2234,14 @@ export class AcApDocManager {
             view.beginProgressiveOpenFit()
           }
           view.zoomToFitDrawing()
+          view.requestOpenLineworkFrame()
         }
       } else {
         if (progressiveRendering) {
           view.beginProgressiveOpenFit()
         }
         view.zoomToFitDrawing()
+        view.requestOpenLineworkFrame()
       }
 
       // Tell the view we've already framed the startup layout, so that
@@ -2286,6 +2303,7 @@ export class AcApDocManager {
       }
     } else {
       this.stripObsoleteFontOpenOptions(options)
+      this.stripDeprecatedWaitForTextGeometry(options)
       if (options.drawNoPlotLayers == null) {
         options.drawNoPlotLayers = false
       }
@@ -2294,6 +2312,25 @@ export class AcApDocManager {
       }
     }
     return options
+  }
+
+  /**
+   * Drops deprecated {@link AcApOpenDatabaseOptions.waitForTextGeometry}.
+   *
+   * Both stages of progressive rendering — mid-open paints, and whether the
+   * open overlay waits for deferred text — are controlled by
+   * `progressiveRendering`. The old flag is stripped so it cannot be forwarded
+   * into `db.read`.
+   */
+  private stripDeprecatedWaitForTextGeometry(options: AcApOpenDatabaseOptions) {
+    if (options.waitForTextGeometry == null) {
+      return
+    }
+    delete options.waitForTextGeometry
+    console.warn(
+      '[AcApDocManager] Ignoring deprecated open option waitForTextGeometry; ' +
+        'both stages of progressive rendering are controlled by progressiveRendering.'
+    )
   }
 
   /**
@@ -2463,7 +2500,9 @@ export class AcApDocManager {
     mtextRenderer.initialize(
       webworkerFileUrls?.mtextRender ?? DEFAULT_WEBWORKER_FILE_URLS.mtextRender
     )
-    void mtextRenderer.setDefaultFonts(DEFAULT_FONTS_PRESET)
+    void mtextRenderer.setDefaultFonts([
+      ...FontManager.instance.defaultFonts
+    ])
   }
 
   /**
@@ -2547,6 +2586,18 @@ export class AcApDocManager {
         subStageStatus: args.subStageStatus,
         data: args.data
       })
+
+      // Text styles are in the table when STYLE ends — start font download
+      // immediately so it overlaps LAYER / BLOCK / ENTITY parse and linework.
+      if (args.subStage === 'STYLE' && args.subStageStatus === 'END') {
+        const session = this._sessions.find(item => item.doc === doc)
+        const view = (session?.context.view as AcTrView2d) ?? this.curView
+        // Prefer the opening doc's session view so split-canvas opens do not
+        // kick preload on the wrong renderer.
+        if (view) {
+          view.startTextStyleFontPreload(doc.database)
+        }
+      }
 
       if (args.subStage !== 'HEADER') {
         return

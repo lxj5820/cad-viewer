@@ -1261,5 +1261,42 @@ export default {
         global: 'Measure'
       }
     }
+  },
+  cpdf: {
+    modelSpaceFit: '模型空间范围 [范围(E)/显示(D)]',
+    exportLayouts: '是否导出布局',
+    textMode: '文字渲染方式 [文字(T)/矢量(V)]',
+    keywords: {
+      extents: {
+        display: '范围(E)',
+        local: '范围',
+        global: 'Extents'
+      },
+      display: {
+        display: '显示(D)',
+        local: '显示',
+        global: 'Display'
+      },
+      text: {
+        display: '文字(T)',
+        local: '文字',
+        global: 'Text'
+      },
+      vector: {
+        display: '矢量(V)',
+        local: '矢量',
+        global: 'Vector'
+      },
+      yes: {
+        display: '是(Y)',
+        local: '是',
+        global: 'Yes'
+      },
+      no: {
+        display: '否(N)',
+        local: '否',
+        global: 'No'
+      }
+    }
   }
 }

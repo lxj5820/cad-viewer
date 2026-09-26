@@ -121,6 +121,28 @@ export default {
     copyPasswordSuccess: 'Password copied to the clipboard.',
     copyPasswordFailed: 'Unable to copy the password to the clipboard.'
   },
+  exportPdfDlg: {
+    title: 'Export to PDF',
+    modelSpaceSection: 'Model space',
+    modelSpaceDisplay: 'Display',
+    modelSpaceDisplayHint: 'Export what is currently shown in the viewport',
+    modelSpaceExtents: 'Extents',
+    modelSpaceExtentsHint:
+      'Export the extents of all objects in the current space',
+    paperSpaceSection: 'Paper space',
+    exportLayouts: 'Export layouts',
+    exportLayoutsHint: 'Include paper-space layouts as additional PDF pages',
+    textModeSection: 'Text',
+    textMode: 'Text rendering',
+    textModeText: 'Text objects',
+    textModeTextHint:
+      'Keep text selectable/searchable and shrink the file (SHX text stays vector)',
+    textModeVector: 'Vector outlines',
+    textModeVectorHint:
+      'Convert text to lines and fills, matching the screen, but the file is larger',
+    yes: 'Yes',
+    no: 'No'
+  },
   quickSelectDlg: {
     title: 'Quick Select',
     applyTo: 'Apply to',

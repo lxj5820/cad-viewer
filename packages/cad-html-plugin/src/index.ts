@@ -37,7 +37,12 @@ export {
   splineToAcGe,
   type AcExOsnapAcGeCurve
 } from './AcExOsnapPrimitiveToAcGe'
-export { packHtml, packHtmlPackage, type AcExPackHtmlOptions, type AcExPackHtmlPackageOptions } from './AcExHtmlPackager'
+export {
+  packHtml,
+  packHtmlPackage,
+  type AcExPackHtmlOptions,
+  type AcExPackHtmlPackageOptions
+} from './AcExHtmlPackager'
 export {
   ACEX_DEFAULT_MANIFEST_FILE,
   ACEX_DEFAULT_MANIFEST_HREF,
@@ -63,8 +68,13 @@ export {
   type AcApHtmlExpiryDays,
   type AcExHtmlAccessManifest,
   ACEX_HTML_EXPIRY_COUNTDOWN_MS,
+  acExHtmlBase64ToBytes,
+  acExHtmlBytesToBase64,
   buildAcExHtmlAccessManifest,
+  createAcExHtmlAccessKey,
+  decryptAcExHtmlBytes,
   decryptAcExHtmlSnapshotPayload,
+  encryptAcExHtmlBytes,
   encryptAcExHtmlSnapshotPayload,
   formatAcExHtmlCountdown,
   formatAcExHtmlExpiresAt,
@@ -75,6 +85,23 @@ export {
   protectAcExHtmlEncodedSnapshot,
   resolveAcApHtmlExpiresAt
 } from './AcExHtmlAccess'
+export {
+  ACEX_EMBEDDED_CHUNK_ENCRYPTED_MIME,
+  ACEX_EMBEDDED_CHUNK_HREF_ATTR,
+  ACEX_EMBEDDED_CHUNK_MIME,
+  collectAcExEmbeddedChunkBytes,
+  consumeAcExEmbeddedChunkFromDom,
+  createAcExDomEmbeddedPackageFetch,
+  createAcExEmbeddedPackageFetch,
+  decryptAcExEmbeddedManifest,
+  estimateAcExSnapshotGeometryBytes,
+  packHtmlEmbeddedPackage,
+  parseAcExEmbeddedPackageConfig,
+  readAcExEmbeddedChunkFromDom,
+  shouldEmbedAcExChunks,
+  type AcExEmbeddedPackageConfig,
+  type AcExPackHtmlEmbeddedOptions
+} from './AcExHtmlEmbeddedPackage'
 export {
   AcExHtmlI18n,
   type AcExHtmlLocale,
@@ -89,6 +116,9 @@ export {
   ACEX_DEFAULT_CHUNK_MAX_BYTES,
   ACEX_MAX_GEOMETRY_BATCH_BYTES,
   ACEX_DEFAULT_OSNAP_CHUNK_MAX_BYTES,
+  ACEX_EMBEDDED_CHUNK_THRESHOLD_BYTES,
+  ACEX_EMBEDDED_CHUNK_MAX_BYTES,
+  ACEX_EMBEDDED_OSNAP_CHUNK_MAX_BYTES,
   type AcExPackageVersion,
   type AcExPackageChunkRef,
   type AcExPackageOsnapChunkRef,
@@ -107,10 +137,14 @@ export {
 } from './AcExChunkBinaryCodec'
 export {
   buildAcExPackage,
+  buildAcExPackageData,
   splitLayoutIntoSlices,
-  type AcExBuildPackageOptions
+  type AcExBuildPackageOptions,
+  type AcExBuildPackageDataOptions
 } from './AcExPackageBuilder'
 export {
+  ACEX_GEOMETRY_CHUNK_FETCH_CONCURRENCY,
+  createAcExOrderedBytePrefetcher,
   parseAcExPackageManifest,
   snapshotSkeletonFromManifest,
   resolveChunkUrl,
@@ -119,6 +153,8 @@ export {
   loadAcExPackage,
   loadAcExPackageLayout,
   loadAcExPackageLayoutOsnap,
+  type AcExOrderedBytePrefetcher,
+  type AcExOrderedPrefetchedItem,
   type AcExPackageLoadProgress,
   type AcExPackageLoaderOptions
 } from './AcExPackageLoader'

@@ -46,9 +46,10 @@ export default {
       progressive: 'Progressive',
       progressiveRendering: 'Progressive rendering',
       on: 'On',
-      progressiveOnHint: 'Show geometry while loading',
+      progressiveOnHint:
+        'Show geometry while loading; progress hides when entities finish',
       off: 'Off',
-      progressiveOffHint: 'Wait until fully converted',
+      progressiveOffHint: 'Wait until entities and text are fully converted',
 
       nonPlottable: 'Non-plottable',
       nonPlottableLayers: 'Non-plottable layers',
@@ -65,7 +66,7 @@ export default {
       curveHigh: 'Quality',
       curveHighHint: 'Smoother curves, more memory',
 
-      paperSpaceBackground: 'Paper space background',
+      paperSpaceBackground: 'Paper background',
       paperSpaceWhite: 'White',
       paperSpaceWhiteHint: 'Desktop CAD / print preview',
       paperSpaceBlack: 'Black',

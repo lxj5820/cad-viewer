@@ -35,6 +35,7 @@ export default {
   message: {
     fetchingDrawingFile: 'Dosya alınıyor ...',
     exportingDxf: 'DXF dışa aktarılıyor ...',
+    exportingPdf: 'PDF dışa aktarılıyor ...',
     exportingEntityPreview: 'Görüntü dışa aktarılıyor ...',
     collectingMemoryProfile: 'Bellek analiz ediliyor ...',
     fontCached: 'Yazı tipi başarıyla önbelleğe alındı',
@@ -46,8 +47,11 @@ export default {
     fontMissedReplacement: '"{font}" ("{replacement}" ile gösteriliyor)',
     failedToGetAvaiableFonts: '"{url}" adresinden yazı tipleri alınamadı!',
     failedToOpenFile: '"{fileName}" dosyası açılamadı!',
+    failedToOpenFileToast:
+      '"{fileName}" açılamadı. Ayrıntılar için bildirim merkezine bakın.',
     failedToOpenFileWorkerOom:
-      '"{fileName}" açılamadı. Çizim mevcut bellek için çok büyük.',
+      '"{fileName}" açılamadı. Ayrıştırma, yetersiz bellek nedeniyle başarısız oldu (LibreDWG parser). Büyük çizimleri çökmeden açmak için ticari DWG parser satın almak üzere {dwgParserLink} bağlantısına tıklayabilirsiniz.',
+    failedToOpenFileWorkerOomLink: 'bu sayfa',
     failedToOpenFileWorkerTimeout:
       '"{fileName}" açılamadı. Çizim ayrıştırılırken işlem zaman aşımına uğradı.',
     failedToOpenFileFontLoadFailed:
@@ -80,7 +84,7 @@ export default {
     },
     title: {
       failedToOpenFile: 'Dosya Açılamadı',
-      failedToOpenFileWorkerOom: 'Çizim Çok Büyük',
+      failedToOpenFileWorkerOom: 'Yetersiz Bellek',
       failedToOpenFileWorkerTimeout: 'Açma Zaman Aşımı',
       failedToOpenFileFontLoadFailed: 'Yazı Tipi Yüklenemedi',
       failedToOpenFileLicenseExpired: 'Lisans Süresi Doldu',
@@ -165,7 +169,7 @@ export default {
   touchPointTutorial: {
     title: 'Noktalar nasıl hassas seçilir?',
     description:
-      'Ekranda yaklaşık 1 saniye basılı tutun. Parmağınızın üstünde bir artı belirir ve hareket ederken geometriye yapışarak daha doğru seçim yapmanızı sağlar.',
+      'Ekranda yaklaşık 0,5 saniye basılı tutun. Parmağınızın üstünde bir artı belirir ve hareket ederken geometriye yapışarak daha doğru seçim yapmanızı sağlar.',
     snoozeToday: 'Bugün tekrar hatırlatma',
     hideForever: 'Bir daha hatırlatma',
     ok: 'Anladım'

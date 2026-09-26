@@ -21,16 +21,19 @@ import {
   AcGeMatrix3d,
   AcGePoint2d,
   AcGePoint2dLike,
+  acgiForegroundColorForBackground,
   log
 } from '@mlightcad/data-model'
 import { AcDbSystemVariables } from '@mlightcad/data-model'
+import { FontManager } from '@mlightcad/mtext-renderer'
 import {
   AcTrEntity,
   AcTrGlyphEntity,
   AcTrGroup,
   AcTrHtmlTransientManager,
   AcTrRenderer,
-  AcTrViewportView
+  AcTrViewportView,
+  hasPendingComplexLineTypeGlyphs
 } from '@mlightcad/three-renderer'
 import { AcTrMatrixUtil } from '@mlightcad/three-renderer'
 import * as THREE from 'three'
@@ -48,6 +51,7 @@ import {
   AcEdConditionWaiter,
   AcEdCorsorType,
   AcEdGripManager,
+  acedGuardCanvasTouchCallout,
   acedInteractionStrategy,
   acedIsTouchDerivedMouseEvent,
   AcEdMTextEditor,
@@ -67,6 +71,10 @@ import {
   readLayoutBackgroundColor
 } from '../editor/global/AcEdUiColor'
 import { ML_UI_Z_CANVAS_HTML_OVERLAY } from '../editor/global/AcEdUiLayout'
+import {
+  acedEntityIntersectsSelectionBox,
+  acedNeedsCrossingGeometryRefine
+} from '../editor/view/AcEdSelectionBoxIntersect'
 import { isEffectiveSpatialQueryHit } from '../editor/view/AcEdSpatialQueryResult'
 import type { AcTrSpatialSearchOptions } from '../spatialIndex/AcTrSpatialIndex'
 import { AcTrGeometryUtil } from '../util'
@@ -100,6 +108,7 @@ import { sortPickResults } from './AcTrPickResultUtil'
 import { AcTrProgressiveOpenFitController } from './AcTrProgressiveOpenFitController'
 import { AcTrScene } from './AcTrScene'
 import type { AcTrViewSessionState } from './AcTrViewSessionState'
+import { shouldRegenDatabaseAfterFontLoad } from './fontLoadRegen'
 
 /**
  * Options to customize view
@@ -261,6 +270,13 @@ export class AcTrView2d extends AcEdBaseView {
   /** Cooperative yields taken inside progressive {@link batchConvert}. */
   private _progressiveYieldCount = 0
   /**
+   * Saved view was not applied at open. Frame batch bounds once linework
+   * convert drains, so the canvas is not blank until deferred glyphs finish.
+   * Applied on a timer so it does not run on the entity-parse stack.
+   */
+  private _openLineworkFramePending = false
+  private _openLineworkFrameTimer: ReturnType<typeof setTimeout> | null = null
+  /**
    * In-flight + queued glyph/group geometry jobs that await fonts via asyncDraw.
    * Counted separately so linework convert can continue while text waits.
    */
@@ -276,10 +292,34 @@ export class AcTrView2d extends AcEdBaseView {
   }> = []
   /** Currently executing deferred geometry runners. */
   private _deferredGeometryActive = 0
+  /**
+   * Debounced glyph rebuild after {@link FontManager.events.fontLoaded} so a
+   * burst of lazy face loads (simsun + malgun, etc.) triggers one redraw pass.
+   */
+  private _fontLoadedRedrawTimer: ReturnType<typeof setTimeout> | null = null
+  private _fontLoadedRedrawEpoch = 0
+  /**
+   * `performance.now()` when convert and deferred glyph jobs last reached
+   * idle together. Zero until that first transition. Used to ignore the
+   * open-time `fontLoaded` regen that replays the loading spinner.
+   */
+  private _entityProcessingIdleAt = 0
+  /**
+   * Convert epoch for which text-style font preload was started.
+   */
+  private _textStyleFontPreloadEpoch = -1
+  /**
+   * In-flight (or resolved) preload of {@link AcDbTextStyleTable.fonts}.
+   * Started at conversion stage `STYLE` END so download overlaps LAYER/BLOCK/
+   * ENTITY parse and linework convert; glyph jobs await this before draw.
+   */
+  private _textStyleFontPreloadPromise: Promise<void> | null = null
   /** Grip point display and drag editing (Write mode only). */
   private _gripManager: AcEdGripManager
   /** Global keyboard shortcuts for the view (undo/redo, erase, etc.). */
   private _keyHandler: AcEdViewKeyHandler
+  /** Removes iOS canvas long-press callout listeners registered in the constructor. */
+  private _disposeCanvasTouchCallout: (() => void) | undefined
   /** Transient reading mode forces black linework on a white canvas. */
   private readonly _readingMode = new AcApReadingModeState({
     getCurrentBackgroundColor: () => this._renderer.currentBackgroundColor,
@@ -309,9 +349,9 @@ export class AcTrView2d extends AcEdBaseView {
   /**
    * Max concurrent deferred glyph/INSERT geometry finalizers. Large drawings
    * enqueue thousands of jobs; keep this modest to limit peak JS heap during
-   * "Rendering drawing ..." while retaining reasonable open throughput.
+   * open while retaining reasonable text throughput after convert finishes.
    */
-  private static readonly DEFERRED_GEOMETRY_CONCURRENCY = 4
+  private static readonly DEFERRED_GEOMETRY_CONCURRENCY = 8
 
   /**
    * Creates a new 2D CAD viewer instance.
@@ -340,13 +380,14 @@ export class AcTrView2d extends AcEdBaseView {
     renderer.domElement.style.maxWidth = '100%'
     renderer.domElement.style.maxHeight = '100%'
     // Keep one-finger picks (measure snap loupe) from being stolen by the
-    // browser scroll / long-press context-menu gesture.
-    renderer.domElement.style.touchAction = 'none'
-    renderer.domElement.style.userSelect = 'none'
-    renderer.domElement.style.setProperty('-webkit-user-select', 'none')
-    renderer.domElement.style.setProperty('-webkit-touch-callout', 'none')
+    // browser scroll / long-press copy-selection callout (especially iOS).
+    const disposeCanvasTouchCallout = acedGuardCanvasTouchCallout(
+      renderer.domElement,
+      container
+    )
 
     super(renderer.domElement, container)
+    this._disposeCanvasTouchCallout = disposeCanvasTouchCallout
     this._gripManager = new AcEdGripManager(this)
     this._keyHandler = new AcEdViewKeyHandler(this)
     if (options.calculateSizeCallback) {
@@ -365,9 +406,12 @@ export class AcTrView2d extends AcEdBaseView {
         count: args.count ?? 0
       })
     })
-    this._renderer.events.fontLoaded.addEventListener(() => {
+    this._renderer.events.fontLoaded.addEventListener(args => {
       // Lazy load success clears FontManager.missedFonts; refresh status-bar state.
       eventBus.emit('missed-data-changed', {})
+      // On-demand faces (e.g. style `malgun`) may finish after the first glyph
+      // bake. Rebuild text so Hangul is not left as permanent '?'.
+      this.scheduleGlyphRedrawAfterFontLoad(args?.fontName)
     })
 
     this._scene = this.createScene()
@@ -824,12 +868,28 @@ export class AcTrView2d extends AcEdBaseView {
    * True while batch conversion or deferred glyph/group geometry is still
    * running.
    *
-   * Parsing can report 100% before this reaches zero; callers opening files
-   * should wait on this (as {@link zoomToFitDrawing} does) before hiding
-   * progress UI or assuming the canvas is ready.
+   * Parsing can report 100% before this reaches zero; callers that need a
+   * fully drawable scene (export, scripted zoom) should wait on this (as
+   * {@link waitUntilIdle} / {@link zoomToFitDrawing} do).
+   *
+   * The open-file progress overlay uses this when
+   * {@link AcApOpenDatabaseOptions.progressiveRendering} is off, so
+   * "Rendering drawing ..." stays up until deferred glyph jobs finish.
+   * When progressive rendering is on, the overlay uses
+   * {@link isConvertingEntities} and may hide while text geometry continues
+   * in the deferred pool (pan/zoom enabled). Deprecated `waitForTextGeometry`
+   * no longer selects this gate.
    */
   get isProcessingEntities() {
     return this._numOfEntitiesToProcess > 0 || this._pendingGeometryJobs > 0
+  }
+
+  /**
+   * True while the entity convert queue / {@link batchConvert} is still
+   * draining. Does **not** include deferred glyph/INSERT geometry jobs.
+   */
+  get isConvertingEntities() {
+    return this._numOfEntitiesToProcess > 0
   }
 
   /**
@@ -1016,6 +1076,11 @@ export class AcTrView2d extends AcEdBaseView {
     this._layerAppearance.refreshTextMaterialsInObjectTree(
       this._scene.internalScene
     )
+    // Style-manager changeForeground only updates cache entries; batch
+    // containers own private material clones and must be repainted too.
+    this._scene.repaintForegroundMaterials(
+      acgiForegroundColorForBackground(value)
+    )
     this.resyncForegroundLayersForBackground()
     if (this._readingMode.isEnabled) {
       this._readingMode.noteLayoutBackground(value)
@@ -1169,15 +1234,20 @@ export class AcTrView2d extends AcEdBaseView {
             threeEntity instanceof AcTrGroup &&
             (threeEntity as AcTrGroup).isOnTheSameLayer
           ) {
-            // Children authored on layer "0" inherit the INSERT layer for
-            // ByLayer traits (color, etc.), same as the primary-document path.
+            threeEntity.userData.insertLayerName = threeEntity.layerName
+          }
+          await this.finishEntityGeometry(threeEntity, false)
+          if (
+            threeEntity instanceof AcTrGroup &&
+            (threeEntity as AcTrGroup).isOnTheSameLayer
+          ) {
+            // Remap after glyph geometry exists — see same-layer commit path.
             this._inheritedLayerMaterialMapper.remap(
               (threeEntity as AcTrGroup).children,
               '0',
               threeEntity.layerName
             )
           }
-          await this.finishEntityGeometry(threeEntity, false)
           layout.addEntity(threeEntity)
           threeEntity.dispose()
         } catch (error) {
@@ -1393,13 +1463,51 @@ export class AcTrView2d extends AcEdBaseView {
   /**
    * Re-render points with latest point style settings
    * @param displayMode Input display mode of points
+   * @param displaySize Input display size of points (`PDSIZE`)
    */
-  rerenderPoints(displayMode: number) {
+  rerenderPoints(displayMode: number, displaySize: number = 0) {
     const activeLayout = this._scene.activeLayout
     if (activeLayout) {
-      activeLayout.rerenderPoints(displayMode)
+      activeLayout.rerenderPoints(displayMode, displaySize)
       this._isDirty = true
     }
+  }
+
+  /**
+   * When open framing waits on {@link zoomToFitDrawing}, show the linework
+   * bounds as soon as entity convert drains. The final fit still runs after
+   * deferred glyphs so text extents can refine the camera.
+   */
+  requestOpenLineworkFrame() {
+    this._openLineworkFramePending = true
+    this.scheduleOpenLineworkFrame()
+  }
+
+  private cancelOpenLineworkFrame() {
+    this._openLineworkFramePending = false
+    if (this._openLineworkFrameTimer != null) {
+      clearTimeout(this._openLineworkFrameTimer)
+      this._openLineworkFrameTimer = null
+    }
+  }
+
+  private scheduleOpenLineworkFrame() {
+    if (
+      this._openLineworkFrameTimer != null ||
+      !this._openLineworkFramePending
+    ) {
+      return
+    }
+    const delay = this.isConvertingEntities ? 50 : 0
+    this._openLineworkFrameTimer = setTimeout(() => {
+      this._openLineworkFrameTimer = null
+      if (!this._openLineworkFramePending) return
+      if (this.isConvertingEntities) {
+        this.scheduleOpenLineworkFrame()
+        return
+      }
+      this.frameOpenLineworkIfReady()
+    }, delay)
   }
 
   /**
@@ -1750,6 +1858,46 @@ export class AcTrView2d extends AcEdBaseView {
   }
 
   /**
+   * Drops crossing spatial hits whose curve geometry misses the pick box.
+   *
+   * Large closed polylines (site boundaries, frames) have AABBs that cover
+   * huge empty interiors. Without this refine, crossing a small INSERT inside
+   * that interior also selects those polylines and can stall highlight work.
+   */
+  protected override refineCrossingSelectionHits(
+    box: AcGeBox2d,
+    results: AcEdSpatialQueryResultItemEx[]
+  ): AcDbObjectId[] {
+    const database = AcApDocManager.instance.curDocument?.database
+    if (!database) {
+      return results.map(item => item.id)
+    }
+
+    const ids: AcDbObjectId[] = []
+    for (const item of results) {
+      if (!acedNeedsCrossingGeometryRefine(item)) {
+        ids.push(item.id)
+        continue
+      }
+
+      const entityBox = new AcGeBox2d(
+        { x: item.minX, y: item.minY },
+        { x: item.maxX, y: item.maxY }
+      )
+      if (box.containsBox(entityBox)) {
+        ids.push(item.id)
+        continue
+      }
+
+      const entity = database.tables.blockTable.getEntityById(item.id)
+      if (!entity || acedEntityIntersectsSelectionBox(entity, box)) {
+        ids.push(item.id)
+      }
+    }
+    return ids
+  }
+
+  /**
    * @inheritdoc
    */
   addLayer(layer: AcDbLayerTableRecord) {
@@ -1912,6 +2060,25 @@ export class AcTrView2d extends AcEdBaseView {
    */
   addEntity(entity: AcDbEntity | AcDbEntity[]) {
     const entities = Array.isArray(entity) ? entity : [entity]
+    // Mark each owner layout as loaded as soon as the open-time ENTITY stream
+    // enqueues work. Progressive convert may not have committed scene entities
+    // yet (`entityCount` still 0); without this, `loadLayoutEntitiesIfNeeded`
+    // (from `onAfterOpenDocument` → `setActiveLayout`) re-iterates the BTR,
+    // double-increments `_numOfEntitiesToProcess`, and keeps
+    // "Rendering drawing ..." up long after linework should have finished —
+    // so progressive rendering cannot release pan/zoom on time.
+    for (let i = 0; i < entities.length; i++) {
+      const ownerId = entities[i]?.ownerId
+      if (!ownerId) continue
+      let layout = this._scene.layouts.get(ownerId)
+      if (!layout) {
+        this._scene.addEmptyLayout(ownerId)
+        layout = this._scene.layouts.get(ownerId)
+      }
+      if (layout && !layout.isLoaded) {
+        layout.isLoaded = true
+      }
+    }
     this._numOfEntitiesToProcess += entities.length
     // Always serialize convert through one drain loop. Non-progressive opens
     // used to `void batchConvert(chunk)` per ENTITY flush chunk, which ran
@@ -2181,9 +2348,12 @@ export class AcTrView2d extends AcEdBaseView {
     // Invalidate any in-flight progressive convert so it neither paints into
     // the cleared scene nor double-decrements the processing counter.
     this._convertEpoch++
+    this.clearFontLoadedRedrawTimer()
     this._convertQueue.length = 0
     this._numOfEntitiesToProcess = 0
+    this.cancelOpenLineworkFrame()
     this.resetDeferredGeometryQueue()
+    this._entityProcessingIdleAt = 0
     this._scene.clear()
     this._isDirty = true
     this._missedImages.clear()
@@ -2219,9 +2389,12 @@ export class AcTrView2d extends AcEdBaseView {
    */
   restoreSessionState(state: AcTrViewSessionState): void {
     this._convertEpoch++
+    this.clearFontLoadedRedrawTimer()
+    this.cancelOpenLineworkFrame()
     this._convertQueue.length = 0
     this._numOfEntitiesToProcess = 0
     this.resetDeferredGeometryQueue()
+    this._entityProcessingIdleAt = 0
     this._scene = state.scene
     this._layoutViewManager = state.layoutViewManager
     this._initializedLayouts = state.initializedLayouts
@@ -2247,9 +2420,12 @@ export class AcTrView2d extends AcEdBaseView {
   beginNewSession(): AcTrViewSessionState {
     const parked = this.captureSessionState()
     this._convertEpoch++
+    this.clearFontLoadedRedrawTimer()
+    this.cancelOpenLineworkFrame()
     this._convertQueue.length = 0
     this._numOfEntitiesToProcess = 0
     this.resetDeferredGeometryQueue()
+    this._entityProcessingIdleAt = 0
     this._scene = this.createScene()
     this._layoutViewManager = new AcTrLayoutViewManager()
     this._initializedLayouts = new Set()
@@ -2400,6 +2576,20 @@ export class AcTrView2d extends AcEdBaseView {
   }
 
   /**
+   * Releases canvas DOM listeners and stops the animation loop.
+   *
+   * Call when this view will no longer be used (manager destroy / split
+   * view teardown). Safe to call more than once.
+   */
+  dispose() {
+    this._disposeCanvasTouchCallout?.()
+    this._disposeCanvasTouchCallout = undefined
+    this.clearFontLoadedRedrawTimer()
+    this.cancelOpenLineworkFrame()
+    this.stopAnimationLoop()
+  }
+
+  /**
    * @inheritdoc
    */
   onHover(id: AcDbObjectId) {
@@ -2546,6 +2736,17 @@ export class AcTrView2d extends AcEdBaseView {
 
       const existingLayout = this._scene.layouts.get(layoutBtrId)
       if (existingLayout && existingLayout.isLoaded) {
+        // Streamed layouts flip `isLoaded` from `addEntity` before scene
+        // commits finish. Still repair the viewport-view race when entities
+        // are already in the scene but AcTrViewportView creation was skipped.
+        const layoutView = this._layoutViewManager.getAt(layoutBtrId)
+        if (
+          existingLayout.entityCount > 0 &&
+          layoutView &&
+          layoutView.viewportCount === 0
+        ) {
+          this.ensureViewportViews(blockTableRecord, layoutView)
+        }
         return
       }
       if (this._loadingLayouts.has(layoutBtrId)) {
@@ -2593,6 +2794,11 @@ export class AcTrView2d extends AcEdBaseView {
       // is only for layouts whose entities were never streamed in
       // (typically non-active paper-space layouts loaded on first user
       // visit).
+      //
+      // Note: `addEntity` now sets `isLoaded` when the open stream
+      // enqueues work, so the common progressive-open race (entityCount
+      // still 0 at `onAfterOpenDocument` while the convert queue is full)
+      // is handled by the `isLoaded` early return above.
       if (existingLayout && existingLayout.entityCount > 0) {
         existingLayout.isLoaded = true
         return
@@ -2715,26 +2921,97 @@ export class AcTrView2d extends AcEdBaseView {
   }
 
   /**
+   * Starts loading fonts referenced by the drawing text style table.
+   *
+   * Call when conversion stage `STYLE` ends so the download overlaps later
+   * parse stages and linework convert. Does not block the caller — glyph
+   * finalize awaits {@link awaitTextStyleFontsReady} instead.
+   *
+   * @param database - Database whose text style table has just been filled.
+   */
+  startTextStyleFontPreload(database: AcDbDatabase): void {
+    const epoch = this._convertEpoch
+    if (
+      this._textStyleFontPreloadEpoch === epoch &&
+      this._textStyleFontPreloadPromise
+    ) {
+      return
+    }
+    this._textStyleFontPreloadEpoch = epoch
+    let names: string[] = []
+    try {
+      names = database.tables.textStyleTable.fonts ?? []
+    } catch {
+      this._textStyleFontPreloadPromise = Promise.resolve()
+      return
+    }
+    if (names.length === 0) {
+      this._textStyleFontPreloadPromise = Promise.resolve()
+      return
+    }
+    this._textStyleFontPreloadPromise = FontManager.instance
+      .requestFonts(names)
+      .then(
+        () => {},
+        () => {
+          // Glyph draw still falls back via FontManager defaults / '?'.
+        }
+      )
+  }
+
+  /**
+   * Waits until {@link startTextStyleFontPreload} has finished (or starts a
+   * fallback preload from this view's bound draw database if STYLE was missed).
+   */
+  async awaitTextStyleFontsReady(): Promise<void> {
+    if (!this._textStyleFontPreloadPromise) {
+      // Prefer the database bound to this canvas — not curDocument — so
+      // split-view / multi-session opens preload the correct style table.
+      const db = this._renderer.context.database
+      if (db) {
+        this.startTextStyleFontPreload(db)
+      } else {
+        return
+      }
+    }
+    await this._textStyleFontPreloadPromise
+  }
+
+  /**
    * Finishes geometry for a converted entity.
    *
-   * Glyph entities and block groups use {@link AcTrEntity.asyncDraw} so
-   * {@link FontManager.awaitFontsBeforeDraw} can wait for fonts without
-   * relying on a full-scene regen. Other entities keep the sync finalize path.
+   * Glyph entities, complex-linetype lines, and block groups use
+   * {@link AcTrEntity.asyncDraw} so {@link FontManager.awaitFontsBeforeDraw}
+   * can wait for fonts without relying on a full-scene regen. Other entities
+   * keep the sync finalize path.
    */
   private async finishEntityGeometry(
     threeEntity: AcTrEntity,
     _progressive: boolean
   ) {
+    const needsGlyphDraw =
+      (threeEntity instanceof AcTrGroup &&
+        this.groupHasPendingGlyphGeometry(threeEntity)) ||
+      hasPendingComplexLineTypeGlyphs(threeEntity) ||
+      (threeEntity instanceof AcTrGlyphEntity &&
+        !threeEntity.hasDrawableGeometry())
+
+    if (needsGlyphDraw) {
+      await this.awaitTextStyleFontsReady()
+    }
+
     if (threeEntity instanceof AcTrGroup) {
-      // Compacted INSERT templates may skip syncDraw when fonts are awaited
-      // later; still walk for empty glyph shells. Skip only when there is
-      // nothing left to finalize (incl. post-cache ATTRIBs).
-      if (
-        threeEntity.getSourceEntities().length === 0 &&
-        !this.groupHasPendingGlyphGeometry(threeEntity)
-      ) {
+      // Linework-only INSERTs (no empty glyph shells) skip asyncDraw; spatial
+      // boxes are refreshed by syncGroupSpatialBoundsForIndexing after commit.
+      if (!this.groupHasPendingGlyphGeometry(threeEntity)) {
         return
       }
+      await threeEntity.asyncDraw()
+      return
+    }
+    // Complex TEXT/SHAPE linetypes attach stroke children immediately while
+    // glyph shells still need asyncDraw — do not treat stroke children as done.
+    if (hasPendingComplexLineTypeGlyphs(threeEntity)) {
       await threeEntity.asyncDraw()
       return
     }
@@ -2745,9 +3022,130 @@ export class AcTrView2d extends AcEdBaseView {
   }
 
   private needsDeferredFontGeometry(threeEntity: AcTrEntity): boolean {
-    return (
-      threeEntity instanceof AcTrGlyphEntity || threeEntity instanceof AcTrGroup
-    )
+    if (threeEntity instanceof AcTrGlyphEntity) {
+      return !threeEntity.hasDrawableGeometry()
+    }
+    // Only defer INSERTs that still have empty glyph shells. Linework-only
+    // blocks should commit on the convert path and not occupy the geometry pool.
+    if (threeEntity instanceof AcTrGroup) {
+      return this.groupHasPendingGlyphGeometry(threeEntity)
+    }
+    return hasPendingComplexLineTypeGlyphs(threeEntity)
+  }
+
+  private clearFontLoadedRedrawTimer() {
+    if (this._fontLoadedRedrawTimer != null) {
+      clearTimeout(this._fontLoadedRedrawTimer)
+      this._fontLoadedRedrawTimer = null
+    }
+  }
+
+  /**
+   * Coalesces late font-load notifications into one glyph rebuild pass.
+   */
+  private scheduleGlyphRedrawAfterFontLoad(fontName?: string) {
+    this.clearFontLoadedRedrawTimer()
+    const epoch = this._convertEpoch
+    this._fontLoadedRedrawTimer = setTimeout(() => {
+      this._fontLoadedRedrawTimer = null
+      if (epoch !== this._convertEpoch) {
+        return
+      }
+      void this.redrawGlyphEntitiesAfterFontLoad(epoch, fontName)
+    }, 50)
+  }
+
+  /**
+   * Rebuilds text after a late {@link FontManager.events.fontLoaded}.
+   *
+   * Live {@link AcTrGlyphEntity} shells (rare: mid-convert / not yet batched)
+   * are re-drawn in place. Committed text is already flattened into batches and
+   * disposed. A database regen does not rebuild those batches — `entityAppended`
+   * skips ids the view already has — but it does replay open-file CONVERSION
+   * progress. That replay is skipped while the open has just gone idle
+   * ({@link shouldRegenDatabaseAfterFontLoad}); a face that arrives later can
+   * still regen.
+   */
+  private async redrawGlyphEntitiesAfterFontLoad(
+    epoch: number,
+    fontName?: string
+  ) {
+    if (epoch !== this._convertEpoch) {
+      return
+    }
+    // Drop overlapping redraws from a rapid fontLoaded burst.
+    const redrawEpoch = ++this._fontLoadedRedrawEpoch
+    const glyphs: AcTrGlyphEntity[] = []
+    for (const layout of this._scene.layouts.values()) {
+      layout.layers.forEach(layer => {
+        layer.internalObject.traverse(obj => {
+          if (obj instanceof AcTrGlyphEntity) {
+            glyphs.push(obj)
+          }
+        })
+      })
+    }
+    for (const glyph of glyphs) {
+      if (
+        epoch !== this._convertEpoch ||
+        redrawEpoch !== this._fontLoadedRedrawEpoch
+      ) {
+        return
+      }
+      await glyph.asyncDraw()
+    }
+    if (glyphs.length > 0) {
+      if (epoch === this._convertEpoch) {
+        this._isDirty = true
+      }
+      return
+    }
+
+    // Default/symbol preset faces are requested in the background under lazy
+    // loading (mtext-renderer awaitFontsBeforeDraw only waits on content/style
+    // fonts). Regenerating for every default face load would thrash after open;
+    // style fonts that finish late still take the regen path below.
+    if (fontName) {
+      const defaults = FontManager.instance.defaultFonts
+      const normalized = fontName.toLowerCase()
+      if (
+        defaults.has(fontName) ||
+        defaults.has(normalized) ||
+        [...defaults].some(name => name.toLowerCase() === normalized)
+      ) {
+        return
+      }
+    }
+
+    if (
+      epoch !== this._convertEpoch ||
+      redrawEpoch !== this._fontLoadedRedrawEpoch
+    ) {
+      return
+    }
+
+    const msSinceIdle =
+      this._entityProcessingIdleAt > 0
+        ? performance.now() - this._entityProcessingIdleAt
+        : null
+    // Open-time text awaits its fonts, then this debounced callback runs.
+    // Regen here only flashes the loading spinner again after
+    // "Rendering drawing ..." has already hidden (progressive rendering on).
+    if (
+      !shouldRegenDatabaseAfterFontLoad(
+        this.isProcessingEntities,
+        0,
+        msSinceIdle
+      )
+    ) {
+      return
+    }
+
+    const db = AcApDocManager.instance?.curDocument?.database
+    if (!db) {
+      return
+    }
+    db.regen()
   }
 
   private groupHasPendingGlyphGeometry(group: AcTrGroup): boolean {
@@ -2786,8 +3184,7 @@ export class AcTrView2d extends AcEdBaseView {
    */
   private pumpDeferredGeometryQueue(): void {
     while (
-      this._deferredGeometryActive <
-        AcTrView2d.DEFERRED_GEOMETRY_CONCURRENCY &&
+      this._deferredGeometryActive < AcTrView2d.DEFERRED_GEOMETRY_CONCURRENCY &&
       this._deferredGeometryQueue.length > 0
     ) {
       const job = this._deferredGeometryQueue.shift()!
@@ -2822,6 +3219,7 @@ export class AcTrView2d extends AcEdBaseView {
             if (this._pendingGeometryJobs === 0) {
               this._isDirty = true
             }
+            this.stampEntityProcessingIdle()
           }
           this.pumpDeferredGeometryQueue()
         })
@@ -2835,6 +3233,8 @@ export class AcTrView2d extends AcEdBaseView {
     // slots until their `finally` runs. Zeroing here lets pump over-schedule
     // when those completions decrement the counter afterward.
     this._pendingGeometryJobs = 0
+    this._textStyleFontPreloadPromise = null
+    this._textStyleFontPreloadEpoch = -1
   }
 
   /**
@@ -2893,6 +3293,15 @@ export class AcTrView2d extends AcEdBaseView {
     options: { forExport?: boolean } = {}
   ) {
     const epoch = this._convertEpoch
+    // Fallback: if STYLE-stage preload never started (e.g. non-conversion open
+    // paths), kick it off without blocking linework convert. Glyph finalize
+    // awaits the promise via {@link awaitTextStyleFontsReady}.
+    if (!options.forExport && !this._textStyleFontPreloadPromise) {
+      const db = this._renderer.context.database
+      if (db) {
+        this.startTextStyleFontPreload(db)
+      }
+    }
     const progressive = this._progressiveRendering && !options.forExport
     // Time-budgeted yields keep the UI (and optional progressive paints) alive
     // during large open chunks. Count-based yields alone stall on expensive
@@ -2989,13 +3398,10 @@ export class AcTrView2d extends AcEdBaseView {
             threeEntity instanceof AcTrGroup &&
             (threeEntity as AcTrGroup).isOnTheSameLayer
           ) {
-            // Even when a block expands to a single layer bucket, children authored on
-            // layer "0" still inherit the INSERT layer for ByLayer traits (color, etc.).
-            this._inheritedLayerMaterialMapper.remap(
-              (threeEntity as AcTrGroup).children,
-              '0',
-              threeEntity.layerName
-            )
+            // Layer-0 inheritance must run AFTER finishEntityGeometry so TEXT/
+            // MTEXT glyph materials exist. Remapping earlier (before asyncDraw)
+            // leaves GM/GB-style labels as ACI-7 white while the block frame
+            // remaps correctly (GAS-Meter / GAS-Box, A517B / A517E).
             threeEntity.userData.insertLayerName = threeEntity.layerName
           }
           const isMultiLayerGroup =
@@ -3034,6 +3440,13 @@ export class AcTrView2d extends AcEdBaseView {
               }
               if (threeEntity instanceof AcTrGroup) {
                 this.syncGroupSpatialBoundsForIndexing(threeEntity)
+                if ((threeEntity as AcTrGroup).isOnTheSameLayer) {
+                  this._inheritedLayerMaterialMapper.remap(
+                    (threeEntity as AcTrGroup).children,
+                    '0',
+                    threeEntity.layerName
+                  )
+                }
               }
               this._scene.addEntity(threeEntity, isExtendBbox)
               this.applySessionHiddenObjectState(entity.objectId)
@@ -3233,7 +3646,11 @@ export class AcTrView2d extends AcEdBaseView {
       // buckets, so selection/highlight still maps back to the same database object.
       // Within each layer bucket, the object id remains unique in scene indexing.
       const entity = new AcTrEntity(renderContext)
-      entity.applyMatrix4(group.matrix)
+      // Copy the INSERT matrix exactly — applyMatrix4 decomposes and drops
+      // reflections from mirrored block scales.
+      entity.matrix.copy(group.matrix)
+      entity.matrixAutoUpdate = false
+      entity.matrixWorldNeedsUpdate = true
       entity.objectId = groupObjectId
       entity.ownerId = group.ownerId
       // If block-definition entities are on layer "0", this bucket now uses the layer
@@ -3252,6 +3669,7 @@ export class AcTrView2d extends AcEdBaseView {
       for (let i = 0; i < objects.length; i++) {
         entity.add(objects[i])
       }
+      entity.updateMatrixWorld(true)
       this._layerAppearance.refreshTextMaterialsInObjectTree(entity)
       this._scene.addEntity(entity, true)
       this.applySessionHiddenObjectState(groupObjectId)
@@ -3280,6 +3698,35 @@ export class AcTrView2d extends AcEdBaseView {
       // the user pans/zooms (animate bails when !_isDirty && !_htmlDirty &&
       // !stillLoading).
       this._isDirty = true
+    }
+    this.stampEntityProcessingIdle()
+  }
+
+  /**
+   * Zooms to batch geometry once, after entity convert has drained.
+   */
+  private frameOpenLineworkIfReady() {
+    if (!this._openLineworkFramePending || this.isConvertingEntities) {
+      return
+    }
+    const box = this.resolveLayoutFitBox()
+    if (!box || box.isEmpty()) {
+      this._openLineworkFramePending = false
+      return
+    }
+    this._openLineworkFramePending = false
+    // Programmatic so a progressive open does not treat this as a user zoom
+    // and skip the glyph-aware final fit.
+    this._progressiveOpenFit.frameProgrammatically(box)
+  }
+
+  /**
+   * Records the moment convert and deferred glyph jobs are both idle.
+   * Intermediate completions (linework done, text still queued) do not stamp.
+   */
+  private stampEntityProcessingIdle() {
+    if (this._numOfEntitiesToProcess === 0 && this._pendingGeometryJobs === 0) {
+      this._entityProcessingIdleAt = performance.now()
     }
   }
 }

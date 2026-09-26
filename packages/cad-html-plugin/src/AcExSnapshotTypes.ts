@@ -14,6 +14,13 @@ import type { AcExOsnapCatalog } from './AcExOsnapPrimitiveTypes'
  *
  * v4 adds optional textured mesh payloads ({@link AcExMeshBatch.uvs} +
  * {@link AcExMeshBatch.texture}) for raster images and OLE frames.
+ * Monolithic ACEX layout OSNAP is stored as ACEO bytes (legacy JSON still
+ * decodes); package ACEC chunk schema is unchanged.
+ *
+ * Optional {@link AcExLayoutSnapshot.savedView} (AutoCAD VPORT / layout limits)
+ * is a layout field used by the offline “Saved” zoom action. In ACEX binary it
+ * is stored under {@link AcExSnapshot.meta.savedViews} so the viewport JSON
+ * slot stays a bare array compatible with older runtimes.
  */
 export const ACEX_SNAPSHOT_VERSION = 4 as const
 
@@ -103,13 +110,20 @@ export interface AcExLinePattern {
 
 /**
  * One hatch pattern definition line serialized for offline playback.
+ *
+ * {@link AcExHatchPatternLine.offset} is stored in the same frame as the live
+ * hatch shader uniform (already rotated by `-angle` in
+ * {@link AcTrFillMaterialManager}), not as a raw DXF/PAT definition offset.
  */
 export interface AcExHatchPatternLine {
   /** Pattern line angle in radians. */
   angle: number
   /** Pattern origin in hatch object space. */
   base: [number, number]
-  /** Spacing offset between repeated pattern lines. */
+  /**
+   * Spacing offset between repeated pattern lines, in the hatch shader's
+   * line-local frame (pre-rotated by `-angle`).
+   */
   offset: [number, number]
   /** Dash and gap lengths for this pattern line. */
   dashLengths: number[]
@@ -314,6 +328,12 @@ export interface AcExLayoutSnapshot {
    * these descriptors to scissor-render model-space batches inside each frame.
    */
   viewports?: AcExViewportSnapshot[]
+  /**
+   * AutoCAD saved view for this layout (model: VPORT `*ACTIVE`; paper: layout
+   * limits). Used by the offline toolbar “Saved” zoom action. Omitted when the
+   * drawing has no usable saved view.
+   */
+  savedView?: AcExExtents
 }
 
 /** Camera state for restoring the export-time view in the offline HTML viewer. */
@@ -401,6 +421,13 @@ export interface AcExSnapshot {
      * option existed.
      */
     exportLayouts?: boolean
+    /**
+     * AutoCAD saved views keyed by layout BTR id. Written by the ACEX binary
+     * codec so the layout viewport JSON slot remains a bare array; the decoder
+     * copies entries onto {@link AcExLayoutSnapshot.savedView}. Omitted when
+     * no layout has a usable saved view.
+     */
+    savedViews?: Record<string, AcExExtents>
   }
   /** Layer table used by the layer drawer (visibility toggles, swatches). */
   layers: AcExLayerSnapshot[]

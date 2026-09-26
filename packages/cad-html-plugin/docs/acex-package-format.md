@@ -1,8 +1,11 @@
 # ACEX multi-file package format
 
 Display-only render data for the offline HTML viewer, split so a shell page can
-download geometry **progressively** (fetch one compressed chunk, decompress,
-paint, repeat).
+download geometry **progressively**: the viewer keeps up to six compressed
+chunks downloading in parallel, but inflates and paints them strictly in
+manifest order — one chunk at a time, each painted as soon as it is reached
+(see `createAcExOrderedBytePrefetcher`). Embedded / local-directory packages
+fetch serially because their bytes are already local.
 
 > **Export zip vs hosted files**  
 > CAD export may download a single `.zip` that contains the package directory.
@@ -11,6 +14,14 @@ paint, repeat).
 > `*.acex.json`, then individual `chunks/*.acex.gz` files.
 > For nginx/CDN setup, caching, and `.gz` Content-Encoding pitfalls, see
 > [acex-web-hosting-guide.md](./acex-web-hosting-guide.md).
+
+> **Self-contained HTML (large drawings)**  
+> When estimated geometry exceeds ~8 MiB, `single` HTML export embeds the same
+> ACEC/ACEO chunks inline (`#mlcad-package` with `mode: "embedded"`) and paints
+> progressively after each inflate. Chunk size defaults to ~12 MiB (larger than
+> the hosted-package 2 MiB default). Password protection encrypts the manifest
+> and **each chunk** independently (shared PBKDF2 salt). Smaller drawings still
+> use a monolithic `#mlcad-snapshot` ACEX payload.
 
 ## Directory layout
 
@@ -34,7 +45,7 @@ default the config is empty — the generic viewer probes sibling
 
 ```html
 <script id="mlcad-package" type="application/json">
-{}
+  {}
 </script>
 ```
 
@@ -42,7 +53,7 @@ Optional override (legacy or custom hosts):
 
 ```html
 <script id="mlcad-package" type="application/json">
-{"manifestUrl":"./drawing.acex.json"}
+  { "manifestUrl": "./drawing.acex.json" }
 </script>
 ```
 
@@ -53,9 +64,9 @@ relative to that manifest and same-origin with it.
 
 ## Versioning
 
-| Field | Where | Meaning |
-|-------|--------|---------|
-| `packageVersion` | manifest | Package / protocol version. Current: **1**. |
+| Field             | Where                  | Meaning                                                                  |
+| ----------------- | ---------------------- | ------------------------------------------------------------------------ |
+| `packageVersion`  | manifest               | Package / protocol version. Current: **1**.                              |
 | `snapshotVersion` | manifest + ACEC header | Batch schema version. Matches `ACEX_SNAPSHOT_VERSION` (currently **4**). |
 
 Bump `packageVersion` for breaking manifest changes. Bump `snapshotVersion` for
@@ -126,16 +137,16 @@ multi-entry zip archive). File magic after gunzip is `ACEC` (`0x43454341`).
 
 ### ACEC binary (little-endian)
 
-| Offset / field | Type | Description |
-|----------------|------|-------------|
-| magic | `u32` | `0x43454341` (`ACEC`) |
-| version | `u8` | `snapshotVersion` |
-| reserved | `u8` × 3 | Must be `0`; ignore on read |
-| layoutBtrId | length-prefixed UTF-8 | Owning layout |
-| lineBatchCount | `u32` | |
-| line batches | … | Same encoding as ACEX snapshot batches |
-| meshBatchCount | `u32` | |
-| mesh batches | … | Same encoding as ACEX snapshot batches |
+| Offset / field | Type                  | Description                            |
+| -------------- | --------------------- | -------------------------------------- |
+| magic          | `u32`                 | `0x43454341` (`ACEC`)                  |
+| version        | `u8`                  | `snapshotVersion`                      |
+| reserved       | `u8` × 3              | Must be `0`; ignore on read            |
+| layoutBtrId    | length-prefixed UTF-8 | Owning layout                          |
+| lineBatchCount | `u32`                 |                                        |
+| line batches   | …                     | Same encoding as ACEX snapshot batches |
+| meshBatchCount | `u32`                 |                                        |
+| mesh batches   | …                     | Same encoding as ACEX snapshot batches |
 
 Batch records reuse the ACEX feature-flag scheme (`F_LINE_*`, `F_MESH_*`):
 
@@ -183,15 +194,15 @@ so hosts can fetch snap slices after the drawing is already visible.
 
 ### ACEO binary (little-endian)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| magic | `u32` | `0x4F454341` (`ACEO`) |
-| version | `u8` | Currently **1** (includes kind `7` `path`) |
-| reserved | `u8` × 3 | Must be `0` |
-| layerCount | `u32` | |
-| layers | strings | Length-prefixed UTF-8 dictionary |
-| primitiveCount | `u32` | |
-| primitives | … | kind `u8` + layer index `u32` + kind-specific f64 fields |
+| Field          | Type     | Description                                              |
+| -------------- | -------- | -------------------------------------------------------- |
+| magic          | `u32`    | `0x4F454341` (`ACEO`)                                    |
+| version        | `u8`     | Currently **1** (includes kind `7` `path`)               |
+| reserved       | `u8` × 3 | Must be `0`                                              |
+| layerCount     | `u32`    |                                                          |
+| layers         | strings  | Length-prefixed UTF-8 dictionary                         |
+| primitiveCount | `u32`    |                                                          |
+| primitives     | …        | kind `u8` + layer index `u32` + kind-specific f64 fields |
 
 Kind codes: `1` line (legacy / unused on export), `2` circle, `3` arc, `4` ellipse, `5` spline, `6` point, `7` path (`closed` `u8` + `f64` vertex pack `[x,y,bulge,…]`).
 

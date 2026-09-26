@@ -10,12 +10,10 @@ import {
   AcExCommandSessionPanel,
   type AcExCommandSessionUiState
 } from './AcExCommandSessionPanel'
-import {
-  acexCssTopLeftRectToGl,
-  acexWcsBoxToCssRect
-} from './AcExCssRect'
+import { acexCssTopLeftRectToGl, acexWcsBoxToCssRect } from './AcExCssRect'
 import { acexSetDocsBaseUrl } from './AcExDocsUrl'
 import {
+  createAcExHtmlAccessKey,
   decryptAcExHtmlSnapshotPayload,
   isAcExHtmlAccessExpired,
   parseAcExHtmlAccessManifest
@@ -30,16 +28,23 @@ import {
   acexHtmlIsPhoneLayout,
   setupAcExHtmlDrawerSheets
 } from './AcExHtmlDrawerSheet'
+import {
+  createAcExDomEmbeddedPackageFetch,
+  decryptAcExEmbeddedManifest,
+  parseAcExEmbeddedPackageConfig
+} from './AcExHtmlEmbeddedPackage'
 import { setupAcExHtmlExpiryMonitor } from './AcExHtmlExpiryUi'
 import { AcExHtmlI18n, detectAcExHtmlLocale } from './AcExHtmlI18n'
 import { AcExHtmlIcons } from './AcExHtmlIcons'
 import {
   type AcExHtmlMainToolbarController,
-  setupAcExHtmlMainToolbar} from './AcExHtmlMainToolbar'
+  setupAcExHtmlMainToolbar
+} from './AcExHtmlMainToolbar'
 import { setupAcExHtmlMeasurePanel } from './AcExHtmlMeasurePanel'
 import { setupAcExHtmlMeasureSettings } from './AcExHtmlMeasureSettings'
 import { setupAcExHtmlNavTools } from './AcExHtmlNavTools'
 import {
+  ACEX_PACKAGE_DIRECTORY_ORIGIN,
   acexGlobalFetch,
   chooseInitialManifestHref,
   probePackageManifest,
@@ -50,13 +55,19 @@ import { setupAcExHtmlReviewPanel } from './AcExHtmlReviewPanel'
 import { acexSyncHtmlShortCutSelection } from './AcExHtmlShortCutSelection'
 import { setupAcExHtmlShortCutToolbar } from './AcExHtmlShortCutToolbar'
 import {
+  acedClearDomSelection,
+  acedGuardCanvasTouchCallout
+} from './AcExHtmlSimpleViewerUi'
+import {
   type AcExIdlePointerHost,
   acexIdlePointerStrategy
 } from './AcExIdlePointerStrategy'
 import {
+  type AcExBatchExtentEntry,
+  collectLayoutBatchExtentEntries,
+  computeIntelligentExtentsFromBatchEntries,
   computeLayerExtentsMap,
-  resolveLayoutViewExtents
-} from './AcExLayerExtents'
+  resolveLayoutViewExtents} from './AcExLayerExtents'
 import { AcExMarkupController } from './AcExMarkup'
 import { AcExMeasureController } from './AcExMeasurement'
 import {
@@ -68,6 +79,8 @@ import {
 import { AcExOsnapIndex, estimateOsnapRebuildWork } from './AcExOsnap'
 import { AcExOsnapMarker } from './AcExOsnapMarker'
 import {
+  ACEX_GEOMETRY_CHUNK_FETCH_CONCURRENCY,
+  createAcExOrderedBytePrefetcher,
   loadAcExPackageLayoutOsnap,
   resolveChunkUrl,
   snapshotSkeletonFromManifest
@@ -101,7 +114,10 @@ import {
   ACEX_SNAP_LOUPE_ZOOM,
   AcExSnapLoupe
 } from './AcExSnapLoupe'
-import { decodeSnapshot } from './AcExSnapshotCodec'
+import {
+  decodeSnapshotFromCompressedBytes,
+  snapshotPayloadToCompressedBytes
+} from './AcExSnapshotCodec'
 import { ACEX_MAX_COMPRESSED_BYTES } from './AcExSnapshotCompression'
 import type {
   AcExExtents,
@@ -123,7 +139,11 @@ import {
 } from './AcExTouchPointSession'
 import { acexMaybeShowTouchPointTutorial } from './AcExTouchPointTutorial'
 import {
+  assignLayoutGeometryFrom,
+  layoutHasBatchGeometry,
+  releaseInactiveLayoutBatchBuffers,
   releaseLayerGroupsGeometryCpuArrays,
+  releaseLayoutBatchBuffers,
   releaseSnapshotBatchBuffers,
   releaseSnapshotOsnapCatalogs,
   removeSnapshotElement
@@ -229,15 +249,10 @@ function applyHtmlTheme(theme: AcExHtmlTheme): void {
  * @param enabled - Current preference value.
  * @param i18n - Active i18n instance used to refresh visible labels.
  */
-function syncSimulatedMouseButton(
-  enabled: boolean,
-  i18n: AcExHtmlI18n
-): void {
+function syncSimulatedMouseButton(enabled: boolean, i18n: AcExHtmlI18n): void {
   const btn = document.getElementById('mlcad-simulated-mouse-btn')
   if (!btn) return
-  const key = enabled
-    ? 'toolbar.simulatedMouseOn'
-    : 'toolbar.simulatedMouseOff'
+  const key = enabled ? 'toolbar.simulatedMouseOn' : 'toolbar.simulatedMouseOff'
   btn.classList.toggle('active', enabled)
   btn.setAttribute('data-i18n-key', key)
   btn.setAttribute('data-i18n-attr', 'title aria-label')
@@ -299,6 +314,93 @@ function flipNearBlackWhiteMaterials(root: THREE.Object3D): void {
       flipMaterialColor(mat)
     }
   })
+}
+
+/**
+ * Opens a self-contained HTML that embeds progressive ACEX chunks
+ * (`#mlcad-package` with `mode: "embedded"`).
+ *
+ * Chunk `<script>` nodes stay in the document; bytes are re-read on demand
+ * so open does not decode every gzip payload into a resident Map / IndexedDB.
+ */
+async function openAcExHtmlEmbeddedPackageSession(
+  packageEl: HTMLElement,
+  i18n: AcExHtmlI18n
+): Promise<{
+  manifest: AcExPackageManifest
+  decryptKey: CryptoKey | null
+  expiresAt: number | null
+} | null> {
+  const config = parseAcExEmbeddedPackageConfig(packageEl.textContent)
+  if (!config) {
+    showViewerError(
+      i18n.t('status.loadFailed', { error: 'Invalid embedded package.' })
+    )
+    return null
+  }
+
+  const accessEl = document.getElementById('mlcad-access')
+  const access = parseAcExHtmlAccessManifest(accessEl?.textContent)
+  const expiresAt = access?.expiresAt ?? null
+
+  if (access && isAcExHtmlAccessExpired(access)) {
+    showAcExHtmlAccessExpired(i18n, expiresAt)
+    return null
+  }
+
+  let manifest: AcExPackageManifest | null = null
+  let decryptKey: CryptoKey | null = null
+
+  if (config.encrypted) {
+    if (!access?.encrypted || !access.salt) {
+      showViewerError(
+        i18n.t('status.loadFailed', { error: 'Missing access metadata.' })
+      )
+      return null
+    }
+
+    let failedAttempts = 0
+    let pendingError: 'access.wrongPassword' | undefined
+
+    while (failedAttempts < ACEX_HTML_MAX_PASSWORD_ATTEMPTS) {
+      try {
+        const password = await promptAcExHtmlAccessPassword(i18n, {
+          errorKey: pendingError,
+          expiresAt
+        })
+        pendingError = undefined
+        try {
+          const { key } = await createAcExHtmlAccessKey(password, access.salt)
+          manifest = await decryptAcExEmbeddedManifest(
+            config.encryptedManifest,
+            key
+          )
+          decryptKey = key
+          break
+        } catch {
+          failedAttempts++
+          if (failedAttempts >= ACEX_HTML_MAX_PASSWORD_ATTEMPTS) {
+            lockAcExHtmlAccessGate(i18n)
+            return null
+          }
+          pendingError = 'access.wrongPassword'
+        }
+      } catch {
+        return null
+      }
+    }
+    if (!manifest || !decryptKey) {
+      return null
+    }
+  } else {
+    manifest = config.manifest
+  }
+
+  return {
+    manifest,
+    decryptKey,
+    expiresAt
+  }
 }
 
 /**
@@ -506,6 +608,8 @@ async function startViewer(): Promise<void> {
 
   let snapshot: AcExSnapshot
   let expiresAt: number | null = null
+  /** Gzip ACEX retained for monolithic multi-layout CPU rehydrate after release. */
+  let monolithicCompressed: Uint8Array | null = null
   let packageSession: {
     manifest: AcExPackageManifest
     manifestUrl: string
@@ -513,37 +617,64 @@ async function startViewer(): Promise<void> {
     loadedLayouts: Set<string>
     loadedOsnapLayouts: Set<string>
   } | null = null
+  /** Embedded progressive package pending fetch wiring after layout flags. */
+  let pendingEmbedded: {
+    manifest: AcExPackageManifest
+    decryptKey: CryptoKey | null
+    expiresAt: number | null
+  } | null = null
 
   try {
     if (packageEl) {
-      const config = JSON.parse(packageEl.textContent?.trim() || '{}') as {
-        manifestUrl?: string
+      const rawConfig = packageEl.textContent?.trim() || '{}'
+      let packageMode: string | undefined
+      try {
+        packageMode = (JSON.parse(rawConfig) as { mode?: string }).mode
+      } catch {
+        packageMode = undefined
       }
-      const opened = await openAcExHtmlPackageSession({
-        pageUrl: window.location.href,
-        search: window.location.search,
-        configManifestUrl: config.manifestUrl,
-        i18n
-      })
-      if (!opened) {
-        return
+
+      if (packageMode === 'embedded') {
+        const opened = await openAcExHtmlEmbeddedPackageSession(packageEl, i18n)
+        if (!opened) {
+          return
+        }
+        snapshot = snapshotSkeletonFromManifest(opened.manifest)
+        expiresAt = opened.expiresAt
+        pendingEmbedded = opened
+        removeSnapshotElement(packageEl)
+      } else {
+        const config = JSON.parse(rawConfig) as {
+          manifestUrl?: string
+        }
+        const opened = await openAcExHtmlPackageSession({
+          pageUrl: window.location.href,
+          search: window.location.search,
+          configManifestUrl: config.manifestUrl,
+          i18n
+        })
+        if (!opened) {
+          return
+        }
+        snapshot = snapshotSkeletonFromManifest(opened.manifest)
+        packageSession = {
+          manifest: opened.manifest,
+          manifestUrl: opened.manifestUrl,
+          fetchImpl: opened.fetchImpl,
+          loadedLayouts: new Set(),
+          loadedOsnapLayouts: new Set()
+        }
+        removeSnapshotElement(packageEl)
       }
-      snapshot = snapshotSkeletonFromManifest(opened.manifest)
-      packageSession = {
-        manifest: opened.manifest,
-        manifestUrl: opened.manifestUrl,
-        fetchImpl: opened.fetchImpl,
-        loadedLayouts: new Set(),
-        loadedOsnapLayouts: new Set()
-      }
-      removeSnapshotElement(packageEl)
     } else if (snapshotEl) {
       const resolved = await resolveSnapshotPayload(snapshotEl, i18n)
       if (!resolved) {
         return
       }
       expiresAt = resolved.expiresAt
-      snapshot = decodeSnapshot(resolved.payload)
+      // Retain gzip so layouts can be rehydrated after CPU release on switch.
+      monolithicCompressed = snapshotPayloadToCompressedBytes(resolved.payload)
+      snapshot = decodeSnapshotFromCompressedBytes(monolithicCompressed)
       removeSnapshotElement(snapshotEl)
     } else {
       hideLoading()
@@ -587,6 +718,9 @@ async function startViewer(): Promise<void> {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   canvasHost.insertBefore(renderer.domElement, canvasHost.firstChild)
+  // Block iOS Safari Copy / selection callout on long-press so the snap loupe wins.
+  // Page-lifetime canvas: no dispose path; listeners end with document unload.
+  acedGuardCanvasTouchCallout(renderer.domElement, canvasHost)
 
   const scene = new THREE.Scene()
   const originalBackground = snapshot.meta.background >>> 0
@@ -615,9 +749,21 @@ async function startViewer(): Promise<void> {
 
   const modelLayout = snapshot.layouts.find(item => item.isModelSpace)
   const hasPaperViewports = snapshotHasPaperViewports(snapshot.layouts)
-  const canSwitchLayouts =
-    snapshot.meta.exportLayouts !== false &&
-    (snapshot.layouts.length > 1 || hasPaperViewports)
+
+  if (pendingEmbedded) {
+    const embeddedFetch = createAcExDomEmbeddedPackageFetch({
+      manifest: pendingEmbedded.manifest,
+      decryptKey: pendingEmbedded.decryptKey
+    })
+    packageSession = {
+      manifest: pendingEmbedded.manifest,
+      manifestUrl: embeddedFetch.manifestUrl,
+      fetchImpl: embeddedFetch.fetchImpl,
+      loadedLayouts: new Set(),
+      loadedOsnapLayouts: new Set()
+    }
+    pendingEmbedded = null
+  }
 
   const paperLayerGroups = new Map<string, THREE.Group>()
   const modelLayerGroups = new Map<string, THREE.Group>()
@@ -694,17 +840,109 @@ async function startViewer(): Promise<void> {
   /** Set after {@link render} exists; paints each package chunk as it arrives. */
   let paintPackageChunk: (() => void) | null = null
 
+  const disposeMaterial = (material: THREE.Material) => {
+    const textured = material as THREE.MeshBasicMaterial & {
+      map?: THREE.Texture | null
+    }
+    if (textured.map) {
+      textured.map.dispose()
+      textured.map = null
+    }
+    material.dispose()
+  }
+
   const disposeObject3D = (object: THREE.Object3D) => {
     object.traverse(child => {
       const mesh = child as THREE.Mesh
       if (mesh.geometry) mesh.geometry.dispose()
       const material = mesh.material
       if (Array.isArray(material)) {
-        material.forEach(item => item.dispose())
+        material.forEach(item => disposeMaterial(item))
       } else if (material) {
-        material.dispose()
+        disposeMaterial(material)
       }
     })
+  }
+
+  /**
+   * Drops CPU batches (+ optional GPU) for a package layout that is no longer
+   * on screen so it can be re-fetched later. Model space is kept when paper
+   * viewports still need it.
+   */
+  const unloadPackageLayout = (
+    target: AcExLayoutSnapshot,
+    options: { disposeGpu: boolean }
+  ) => {
+    if (!packageSession) return
+    if (options.disposeGpu) {
+      clearLayoutSceneGeometry(target)
+    }
+    releaseLayoutBatchBuffers(target)
+    target.osnap = undefined
+    packageSession.loadedLayouts.delete(target.btrId)
+    packageSession.loadedOsnapLayouts.delete(target.btrId)
+  }
+
+  const layoutGpuResident = (target: AcExLayoutSnapshot): boolean => {
+    if (target.isModelSpace) return modelLayerGroups.size > 0
+    return paperLayerGroups.size > 0
+  }
+
+  const packageLayoutHasChunks = (btrId: string): boolean => {
+    if (!packageSession) return false
+    const ref = packageSession.manifest.layouts.find(
+      item => item.btrId === btrId
+    )
+    return (ref?.chunkIds.length ?? 0) > 0
+  }
+
+  /**
+   * True when the layout has no GPU and no CPU batches but a reload source exists.
+   */
+  const layoutNeedsGeometrySource = (target: AcExLayoutSnapshot): boolean => {
+    if (layoutGpuResident(target) || layoutHasBatchGeometry(target)) {
+      return false
+    }
+    if (packageSession) return packageLayoutHasChunks(target.btrId)
+    return monolithicCompressed != null
+  }
+
+  const rehydrateMonolithicLayout = (target: AcExLayoutSnapshot): void => {
+    if (!monolithicCompressed) return
+    const full = decodeSnapshotFromCompressedBytes(monolithicCompressed)
+    const source = full.layouts.find(item => item.btrId === target.btrId)
+    if (!source) return
+    assignLayoutGeometryFrom(target, source)
+  }
+
+  /**
+   * Per-batch AABBs captured while CPU positions are resident. Intelligent fit
+   * must use this after {@link releaseCpuAfterGpuUpload} clears batches —
+   * including model space loaded as a paper-viewport sidecar.
+   */
+  const batchExtentsByLayout = new Map<string, AcExBatchExtentEntry[]>()
+  const refreshBatchExtentCache = (target: AcExLayoutSnapshot) => {
+    const entries = collectLayoutBatchExtentEntries(target)
+    if (entries.length > 0) {
+      batchExtentsByLayout.set(target.btrId, entries)
+    }
+  }
+
+  /**
+   * After GPU upload (+ hybrid OSNAP when measure is on), drop CPU typed arrays.
+   * GPU buffers stay; layout switch reloads from package chunks or monolithic gzip.
+   */
+  const releaseCpuAfterGpuUpload = () => {
+    // Snapshot every layout that still has CPU batches (active + sidecar model).
+    for (const target of snapshot.layouts) {
+      refreshBatchExtentCache(target)
+    }
+    releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
+    releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
+    releaseSnapshotBatchBuffers(snapshot)
+    releaseSnapshotOsnapCatalogs(snapshot)
+    // Force ACEO re-fetch when geometry is rehydrated for a later rebuild.
+    packageSession?.loadedOsnapLayouts.clear()
   }
 
   const disposePaperGeometry = () => {
@@ -729,39 +967,56 @@ async function startViewer(): Promise<void> {
     }
   }
 
-  const loadPackageLayoutGeometry = async (
-    target: AcExLayoutSnapshot
+  /**
+   * Download window for package chunks. Remote packages fetch up to six
+   * chunks in parallel so latency/bandwidth overlap; inflate + GPU upload +
+   * paint still consume chunks strictly in `chunkIds` order below, so
+   * progressive rendering is unchanged. Embedded / local-directory packages
+   * resolve bytes from DOM nodes / an in-memory map (with synchronous base64
+   * decode), where a wider window only adds startup jank — keep them serial.
+   */
+  const packageChunkFetchConcurrency = packageSession?.manifestUrl.startsWith(
+    ACEX_PACKAGE_DIRECTORY_ORIGIN
+  )
+    ? 1
+    : ACEX_GEOMETRY_CHUNK_FETCH_CONCURRENCY
+
+  /**
+   * Fetches package geometry chunks into `target` batches. When `uploadToGpu` is
+   * true, paints each chunk; when false, only restores CPU arrays (hybrid OSNAP)
+   * without touching an already-resident GPU scene.
+   */
+  const fetchPackageLayoutChunks = async (
+    target: AcExLayoutSnapshot,
+    options: { uploadToGpu: boolean }
   ): Promise<void> => {
-    if (!packageSession || packageSession.loadedLayouts.has(target.btrId)) {
-      return
-    }
-    const layoutRef = packageSession.manifest.layouts.find(
+    if (!packageSession) return
+    const session = packageSession
+    const layoutRef = session.manifest.layouts.find(
       item => item.btrId === target.btrId
     )
     if (!layoutRef) {
-      packageSession.loadedLayouts.add(target.btrId)
+      session.loadedLayouts.add(target.btrId)
       return
     }
+
     const chunkById = new Map(
-      packageSession.manifest.chunks.map(chunk => [chunk.id, chunk])
+      session.manifest.chunks.map(chunk => [chunk.id, chunk])
     )
     const chunks = layoutRef.chunkIds
       .map(id => chunkById.get(id))
       .filter((chunk): chunk is NonNullable<typeof chunk> => chunk != null)
 
-    let loadedChunks = 0
-    try {
-      for (const chunkRef of chunks) {
-        statusEl.textContent = i18n.t('status.loadingChunks', {
-          loaded: String(loadedChunks),
-          total: String(chunks.length)
-        })
-        const url = resolveChunkUrl(packageSession.manifestUrl, chunkRef.href)
-        const response = await packageSession.fetchImpl(url)
+    // Parallel download window; bytes may arrive out of order but the
+    // prefetcher hands them back in manifest (paint) order.
+    const prefetcher = createAcExOrderedBytePrefetcher(
+      chunks,
+      packageChunkFetchConcurrency,
+      async chunkRef => {
+        const url = resolveChunkUrl(session.manifestUrl, chunkRef.href)
+        const response = await session.fetchImpl(url)
         if (!response.ok) {
-          throw new Error(
-            `Failed to load geometry chunk (${response.status})`
-          )
+          throw new Error(`Failed to load geometry chunk (${response.status})`)
         }
         const contentLength = response.headers.get('content-length')
         if (contentLength != null) {
@@ -777,13 +1032,27 @@ async function startViewer(): Promise<void> {
         if (buffer.byteLength > ACEX_MAX_COMPRESSED_BYTES) {
           throw new Error('Geometry chunk exceeds size limit')
         }
-        const compressed = new Uint8Array(buffer)
-        const decoded = decodeChunkGzip(compressed)
-        const lineStart = target.lineBatches.length
-        const meshStart = target.meshBatches.length
-        target.lineBatches.push(...decoded.lineBatches)
-        target.meshBatches.push(...decoded.meshBatches)
+        return new Uint8Array(buffer)
+      }
+    )
 
+    let loadedChunks = 0
+    for (;;) {
+      const entry = await prefetcher.next()
+      if (!entry) {
+        break
+      }
+      statusEl.textContent = i18n.t('status.loadingChunks', {
+        loaded: String(loadedChunks),
+        total: String(chunks.length)
+      })
+      const decoded = decodeChunkGzip(entry.bytes)
+      const lineStart = target.lineBatches.length
+      const meshStart = target.meshBatches.length
+      target.lineBatches.push(...decoded.lineBatches)
+      target.meshBatches.push(...decoded.meshBatches)
+
+      if (options.uploadToGpu) {
         const isModel = target.isModelSpace
         appendBatchesToScene(
           target.lineBatches.slice(lineStart),
@@ -792,17 +1061,47 @@ async function startViewer(): Promise<void> {
           isModel ? modelRoot : paperRoot,
           isModel ? modelWideLineMaterials : paperWideLineMaterials
         )
-        loadedChunks += 1
-        statusEl.textContent = i18n.t('status.loadingChunks', {
-          loaded: String(loadedChunks),
-          total: String(chunks.length)
-        })
         // Show this chunk immediately — do not wait for remaining downloads.
         paintPackageChunk?.()
         await accmYieldForPaint()
       }
 
+      loadedChunks += 1
+      statusEl.textContent = i18n.t('status.loadingChunks', {
+        loaded: String(loadedChunks),
+        total: String(chunks.length)
+      })
+    }
+
+    session.loadedLayouts.add(target.btrId)
+  }
+
+  const loadPackageLayoutGeometry = async (
+    target: AcExLayoutSnapshot
+  ): Promise<void> => {
+    if (!packageSession) return
+    // GPU still holds this layout (CPU was released after upload) — do not reload.
+    if (
+      packageSession.loadedLayouts.has(target.btrId) &&
+      (layoutHasBatchGeometry(target) || layoutGpuResident(target))
+    ) {
+      return
+    }
+    // CPU was released and GPU torn down — allow a fresh fetch.
+    packageSession.loadedLayouts.delete(target.btrId)
+    const layoutRef = packageSession.manifest.layouts.find(
+      item => item.btrId === target.btrId
+    )
+    if (!layoutRef) {
       packageSession.loadedLayouts.add(target.btrId)
+      return
+    }
+    clearLayoutSceneGeometry(target)
+    target.lineBatches.length = 0
+    target.meshBatches.length = 0
+
+    try {
+      await fetchPackageLayoutChunks(target, { uploadToGpu: true })
     } catch (error) {
       // Drop partial batches and scene objects so a retry cannot duplicate geometry.
       target.lineBatches.length = 0
@@ -813,19 +1112,48 @@ async function startViewer(): Promise<void> {
   }
 
   /**
+   * Restores CPU line/mesh batches for hybrid OSNAP without disposing GPU meshes
+   * that are already on screen (e.g. model space kept for paper viewports).
+   */
+  const ensureLayoutCpuBatches = async (
+    target: AcExLayoutSnapshot
+  ): Promise<void> => {
+    if (layoutHasBatchGeometry(target)) return
+    if (packageSession && packageLayoutHasChunks(target.btrId)) {
+      target.lineBatches.length = 0
+      target.meshBatches.length = 0
+      try {
+        await fetchPackageLayoutChunks(target, { uploadToGpu: false })
+      } catch (error) {
+        target.lineBatches.length = 0
+        target.meshBatches.length = 0
+        throw error
+      }
+      return
+    }
+    if (monolithicCompressed) {
+      rehydrateMonolithicLayout(target)
+    }
+  }
+
+  /**
    * Downloads OSNAP after geometry is already visible. Multiple ACEO chunks are
    * fetched in parallel; viewing does not depend on this data.
    */
   const loadPackageLayoutOsnap = async (
     target: AcExLayoutSnapshot
   ): Promise<void> => {
+    if (!packageSession || !measureEnabled) {
+      return
+    }
+    // Catalog may have been dropped after hybrid index build (CPU release).
     if (
-      !packageSession ||
-      !measureEnabled ||
-      packageSession.loadedOsnapLayouts.has(target.btrId)
+      packageSession.loadedOsnapLayouts.has(target.btrId) &&
+      target.osnap != null
     ) {
       return
     }
+    packageSession.loadedOsnapLayouts.delete(target.btrId)
     await loadAcExPackageLayoutOsnap(
       packageSession.manifest,
       packageSession.manifestUrl,
@@ -833,6 +1161,7 @@ async function startViewer(): Promise<void> {
       target,
       {
         fetchImpl: packageSession.fetchImpl,
+        fetchConcurrency: packageChunkFetchConcurrency,
         yieldFn: async () => {
           paintPackageChunk?.()
           await accmYieldForPaint()
@@ -875,12 +1204,27 @@ async function startViewer(): Promise<void> {
         paperWideLineMaterials
       )
     }
+    // Drop CPU for layouts not needed for first paint (still in gzip).
+    const keep = new Set<string>([layout.btrId])
+    if (!layout.isModelSpace && hasPaperViewports && modelLayout) {
+      keep.add(modelLayout.btrId)
+    } else if (layout.isModelSpace && modelLayout) {
+      keep.add(modelLayout.btrId)
+    }
+    releaseInactiveLayoutBatchBuffers(snapshot, keep)
   }
 
   const layerExtents = computeLayerExtentsMap(
     layout.lineBatches,
     layout.meshBatches
   )
+  /** Per-layout layer extents kept after CPU batch release for layer-zoom. */
+  const layerExtentsByLayout = new Map<
+    string,
+    Map<string, AcExExtents | null>
+  >()
+  layerExtentsByLayout.set(layout.btrId, new Map(layerExtents))
+  refreshBatchExtentCache(layout)
   let layoutExtents = resolveLayoutViewExtents(
     layout,
     snapshot.meta.viewExtents ?? snapshot.meta.extents
@@ -928,9 +1272,18 @@ async function startViewer(): Promise<void> {
       osnapIndex = new AcExOsnapIndex()
       osnapMarker = new AcExOsnapMarker(root)
     }
+    // Skip when CPU batches were released but GPU (and an existing index) remain.
+    const canRebuildActive = layoutHasBatchGeometry(layout)
+    const canRebuildModel =
+      hasPaperViewports &&
+      modelLayout != null &&
+      layoutHasBatchGeometry(modelLayout)
+    if (!canRebuildActive && !canRebuildModel) {
+      return
+    }
     const workEstimate =
-      estimateOsnapRebuildWork(layout) +
-      (hasPaperViewports && modelLayout
+      (canRebuildActive ? estimateOsnapRebuildWork(layout) : 0) +
+      (canRebuildModel && modelLayout
         ? estimateOsnapRebuildWork(modelLayout)
         : 0)
     if (workEstimate > 8000) {
@@ -939,18 +1292,18 @@ async function startViewer(): Promise<void> {
       await accmYieldForPaint()
     }
     try {
-      await osnapIndex.rebuildAsync(layout, osnapIndexYield)
-      applyOsnapLayerVisibility(osnapIndex)
-      if (hasPaperViewports && modelLayout) {
+      if (canRebuildActive) {
+        await osnapIndex.rebuildAsync(layout, osnapIndexYield)
+        applyOsnapLayerVisibility(osnapIndex)
+      }
+      if (canRebuildModel && modelLayout) {
         if (!modelOsnapIndex) {
           modelOsnapIndex = new AcExOsnapIndex()
         }
         await modelOsnapIndex.rebuildAsync(modelLayout, osnapIndexYield)
         applyOsnapLayerVisibility(modelOsnapIndex)
       }
-      if (!canSwitchLayouts) {
-        releaseSnapshotOsnapCatalogs(snapshot)
-      }
+      releaseSnapshotOsnapCatalogs(snapshot)
     } finally {
       clearStatusBar()
     }
@@ -1008,13 +1361,13 @@ async function startViewer(): Promise<void> {
     bumpSnapCacheKey()
   }
 
-  const zoomToExtents = (extents: AcExExtents) => {
+  const zoomToExtents = (extents: AcExExtents, margin = 0.9) => {
     const { width, height } = getCanvasSize()
     const spanX = Math.max(extents.maxX - extents.minX, FLOAT_TOL)
     const spanY = Math.max(extents.maxY - extents.minY, FLOAT_TOL)
     const centerX = (extents.minX + extents.maxX) / 2
     const centerY = (extents.minY + extents.maxY) / 2
-    const zoom = Math.min(width / spanX, height / spanY) * 0.9
+    const zoom = Math.min(width / spanX, height / spanY) * margin
     flyTo(centerX, centerY, zoom)
     render()
   }
@@ -1022,6 +1375,24 @@ async function startViewer(): Promise<void> {
   const fit = () => {
     // Initial open and toolbar "Zoom extents" both use batch-derived layout bounds.
     zoomToExtents(layoutExtents)
+  }
+
+  const fitSmart = () => {
+    const cached = batchExtentsByLayout.get(layout.btrId) ?? []
+    const liveEntries =
+      layout.lineBatches.length > 0 || layout.meshBatches.length > 0
+        ? collectLayoutBatchExtentEntries(layout)
+        : []
+    const entries = liveEntries.length > 0 ? liveEntries : cached
+    const smart = computeIntelligentExtentsFromBatchEntries(entries, {
+      isLayerVisible: layerName => layerVisible.get(layerName) !== false,
+      viewports: layout.viewports,
+      sampleFromLayout:
+        liveEntries.length > 0
+          ? layout
+          : undefined
+    })
+    zoomToExtents(smart ?? layoutExtents)
   }
 
   const captureViewState = () => ({
@@ -1037,14 +1408,22 @@ async function startViewer(): Promise<void> {
     string,
     { centerX: number; centerY: number; zoom: number }
   >()
-  const restoreOriginalView = () => {
+  const restoreSavedView = () => {
+    const savedExtents = layout.savedView
+    if (savedExtents) {
+      // Exact AutoCAD saved box — no extra 0.9 framing margin.
+      zoomToExtents(savedExtents, 1)
+      return
+    }
+    // Legacy snapshots without embedded savedView: fall back to the view
+    // captured when the layout was first framed (previous "Original" behavior).
     const saved = originalByLayout.get(layout.btrId)
     if (saved) {
       flyTo(saved.centerX, saved.centerY, saved.zoom)
-    } else {
-      fit()
+      render()
+      return
     }
-    render()
+    fit()
   }
 
   let readyStatus = ''
@@ -1281,6 +1660,7 @@ async function startViewer(): Promise<void> {
   }
   sessionPanel?.setHandlers({
     onConfirm: () => {
+      if (markup?.confirmSession(sessionPanel.getStringValue())) return
       measure?.confirmSession()
     },
     onCancel: () => {
@@ -1566,14 +1946,18 @@ async function startViewer(): Promise<void> {
   }
 
   paintPackageChunk = () => {
-    const next = computeLayerExtentsMap(
-      layout.lineBatches,
-      layout.meshBatches
-    )
+    const next = computeLayerExtentsMap(layout.lineBatches, layout.meshBatches)
     layerExtents.clear()
     for (const [name, extents] of next) {
       layerExtents.set(name, extents)
     }
+    layerExtentsByLayout.set(layout.btrId, new Map(layerExtents))
+    refreshBatchExtentCache(layout)
+    layoutExtents = resolveLayoutViewExtents(
+      layout,
+      snapshot.meta.viewExtents ?? snapshot.meta.extents
+    )
+    layerPanel?.syncLayerZoomButtons()
     render()
   }
   requestViewerTextureRepaint = () => {
@@ -1756,11 +2140,9 @@ async function startViewer(): Promise<void> {
         }
       },
       getActionState: () => ({
-        undo:
-          measure?.canUndoLastVertex() === true || sessionHistory.canUndo(),
+        undo: measure?.canUndoLastVertex() === true || sessionHistory.canUndo(),
         redo: sessionHistory.canRedo(),
-        erase:
-          markup?.hasSelection === true || measure?.hasSelection === true
+        erase: markup?.hasSelection === true || measure?.hasSelection === true
       })
     })
     syncHtmlShortCutSelection()
@@ -1828,11 +2210,17 @@ async function startViewer(): Promise<void> {
           markup?.cancelMode()
           fit()
         },
-        restoreOriginalView: () => {
+        fitSmart: () => {
           navToolsRef.current?.cancelZoomWindow()
           measure?.cancelMode()
           markup?.cancelMode()
-          restoreOriginalView()
+          fitSmart()
+        },
+        restoreSavedView: () => {
+          navToolsRef.current?.cancelZoomWindow()
+          measure?.cancelMode()
+          markup?.cancelMode()
+          restoreSavedView()
         },
         cancelZoomWindow: () => navToolsRef.current?.cancelZoomWindow(),
         toggleLayerDrawer: () => {
@@ -1918,8 +2306,7 @@ async function startViewer(): Promise<void> {
         },
         isOrtho: () => measureSettingsRef.current?.isOrtho() === true,
         togglePolarPanel: () => {
-          const open =
-            measureSettingsRef.current?.togglePolarPanel() ?? false
+          const open = measureSettingsRef.current?.togglePolarPanel() ?? false
           mainToolbarRef.current?.refresh()
           return open
         },
@@ -1940,6 +2327,19 @@ async function startViewer(): Promise<void> {
         }
       }
     })
+  }
+
+  const markGeometryReady = (ready: boolean) => {
+    mainToolbarRef.current?.setGeometryReady(ready)
+  }
+  const markOsnapReady = (ready: boolean) => {
+    // View-only HTML has no measure/annotation buttons; treat OSNAP as ready
+    // whenever geometry is ready so readiness stays consistent.
+    if (!measureEnabled) {
+      mainToolbarRef.current?.setOsnapReady(true)
+      return
+    }
+    mainToolbarRef.current?.setOsnapReady(ready)
   }
 
   layerPanel = setupLayerPanel({
@@ -2044,6 +2444,23 @@ async function startViewer(): Promise<void> {
     }
   }
 
+  const ensureLayoutGeometrySource = async (
+    target: AcExLayoutSnapshot
+  ): Promise<'package' | 'monolithic' | 'resident'> => {
+    if (layoutGpuResident(target) || layoutHasBatchGeometry(target)) {
+      return 'resident'
+    }
+    if (packageSession && packageLayoutHasChunks(target.btrId)) {
+      await loadPackageLayoutGeometry(target)
+      return 'package'
+    }
+    if (monolithicCompressed) {
+      rehydrateMonolithicLayout(target)
+      return 'monolithic'
+    }
+    return 'resident'
+  }
+
   const switchLayoutAsync = async (btrId: string) => {
     if (btrId === layout.btrId) return
     const next = snapshot.layouts.find(item => item.btrId === btrId)
@@ -2066,36 +2483,98 @@ async function startViewer(): Promise<void> {
 
     layout = next
 
-    const needsPackageLoad =
-      packageSession != null &&
-      !packageSession.loadedLayouts.has(layout.btrId)
+    // Mount roots before any progressive fetch so each chunk can paint.
+    // (First open already attaches roots before package load; switch used to
+    // defer scene.add until after all chunks finished.)
+    if (layout.isModelSpace) {
+      scene.add(modelRoot)
+    } else {
+      scene.add(paperRoot)
+      if (hasPaperViewports) {
+        modelScene.add(modelRoot)
+      }
+    }
 
-    if (needsPackageLoad && packageSession) {
+    // Frame the target layout BEFORE geometry / OSNAP reload. Otherwise the
+    // camera stays on the previous paper/model view and progressive chunks
+    // paint off-screen until load finishes.
+    layoutExtents = resolveLayoutViewExtents(
+      layout,
+      snapshot.meta.viewExtents ?? snapshot.meta.extents
+    )
+    const cachedLayerExtents = layerExtentsByLayout.get(btrId)
+    if (cachedLayerExtents) {
+      layerExtents.clear()
+      for (const [name, extents] of cachedLayerExtents) {
+        layerExtents.set(name, extents)
+      }
+    } else {
+      layerExtents.clear()
+    }
+    const savedBeforeLoad = lastViewByLayout.get(btrId)
+    if (savedBeforeLoad) {
+      flyTo(
+        savedBeforeLoad.centerX,
+        savedBeforeLoad.centerY,
+        savedBeforeLoad.zoom
+      )
+    } else {
+      fit()
+      originalByLayout.set(btrId, captureViewState())
+    }
+    layerPanel?.syncLayerZoomButtons()
+    render()
+
+    let geometrySource: 'package' | 'monolithic' | 'resident' = 'resident'
+    try {
+      const needsActiveLoad = layoutNeedsGeometrySource(layout)
+      const needsModelLoad =
+        !layout.isModelSpace &&
+        hasPaperViewports &&
+        modelLayout != null &&
+        layoutNeedsGeometrySource(modelLayout)
+      if (needsActiveLoad || needsModelLoad) {
+        markGeometryReady(false)
+        if (measureEnabled) markOsnapReady(false)
+        geometrySource = await ensureLayoutGeometrySource(layout)
+        if (needsModelLoad && modelLayout) {
+          await ensureLayoutGeometrySource(modelLayout)
+        }
+        markGeometryReady(true)
+      }
+    } catch (error) {
+      statusEl.textContent = i18n.t('status.loadFailed', {
+        error: String(error)
+      })
+      if (!next.isModelSpace) {
+        disposePaperGeometry()
+      }
+      paperRoot.removeFromParent()
+      modelRoot.removeFromParent()
       try {
-        await loadPackageLayoutGeometry(layout)
-        if (
-          !layout.isModelSpace &&
-          hasPaperViewports &&
-          modelLayout &&
-          !packageSession.loadedLayouts.has(modelLayout.btrId)
-        ) {
-          await loadPackageLayoutGeometry(modelLayout)
+        await ensureLayoutGeometrySource(previousLayout)
+      } catch {
+        // Fall through to remount whatever is left.
+      }
+      remountLayoutRoots(
+        previousLayout,
+        previousWasPaper &&
+          (layoutHasBatchGeometry(previousLayout) ||
+            layoutGpuResident(previousLayout))
+      )
+      const restored = lastViewByLayout.get(previousLayout.btrId)
+      if (restored) {
+        flyTo(restored.centerX, restored.centerY, restored.zoom)
+      } else {
+        fit()
+      }
+      const cachedPrevExtents = layerExtentsByLayout.get(previousLayout.btrId)
+      if (cachedPrevExtents) {
+        layerExtents.clear()
+        for (const [name, extents] of cachedPrevExtents) {
+          layerExtents.set(name, extents)
         }
-      } catch (error) {
-        statusEl.textContent = i18n.t('status.loadFailed', {
-          error: String(error)
-        })
-        // Partial next geometry was cleared by loadPackageLayoutGeometry; restore prior layout.
-        if (!next.isModelSpace) {
-          disposePaperGeometry()
-        }
-        remountLayoutRoots(previousLayout, previousWasPaper)
-        const restored = lastViewByLayout.get(previousLayout.btrId)
-        if (restored) {
-          flyTo(restored.centerX, restored.centerY, restored.zoom)
-        } else {
-          fit()
-        }
+      } else if (layoutHasBatchGeometry(previousLayout)) {
         const restoredExtents = computeLayerExtentsMap(
           previousLayout.lineBatches,
           previousLayout.meshBatches
@@ -2104,24 +2583,28 @@ async function startViewer(): Promise<void> {
         for (const [name, extents] of restoredExtents) {
           layerExtents.set(name, extents)
         }
-        layoutExtents = resolveLayoutViewExtents(previousLayout)
-        layerPanel?.syncLayerZoomButtons()
-        measure?.syncLayoutVisibility()
-        markup?.syncLayoutVisibility()
-        mainToolbarRef.current?.refresh()
-        recomputeOsnapThresholdWcs()
-        bumpSnapCacheKey()
-        render()
-        return
       }
+      layoutExtents = resolveLayoutViewExtents(previousLayout)
+      layerPanel?.syncLayerZoomButtons()
+      measure?.syncLayoutVisibility()
+      markup?.syncLayoutVisibility()
+      markGeometryReady(true)
+      // Unlock measure even if snap rebuild is skipped; avoid leaving chrome gated.
+      markOsnapReady(true)
+      mainToolbarRef.current?.refresh()
+      recomputeOsnapThresholdWcs()
+      bumpSnapCacheKey()
+      render()
+      return
     }
 
-    if (layout.isModelSpace) {
-      scene.add(modelRoot)
-    } else {
-      scene.add(paperRoot)
-      // Fresh package load already uploaded batches; otherwise rebuild after dispose.
-      if (!needsPackageLoad) {
+    if (!layout.isModelSpace) {
+      // Package load already uploaded batches; monolithic rehydrate needs populate.
+      if (
+        geometrySource !== 'package' &&
+        paperLayerGroups.size === 0 &&
+        layoutHasBatchGeometry(layout)
+      ) {
         populateLayoutGeometry(
           layout,
           paperLayerGroups,
@@ -2132,23 +2615,77 @@ async function startViewer(): Promise<void> {
       if (backgroundSwapped) {
         flipNearBlackWhiteMaterials(paperRoot)
       }
-      if (hasPaperViewports) {
-        modelScene.add(modelRoot)
+    } else if (
+      geometrySource === 'monolithic' &&
+      modelLayerGroups.size === 0 &&
+      layoutHasBatchGeometry(layout)
+    ) {
+      // Model root is already on the scene; rebuild GPU from rehydrated batches.
+      populateLayoutGeometry(
+        layout,
+        modelLayerGroups,
+        modelRoot,
+        modelWideLineMaterials
+      )
+    }
+
+    // Free the previous package layout only after the next one is on screen.
+    if (packageSession) {
+      if (!previousLayout.isModelSpace) {
+        unloadPackageLayout(previousLayout, { disposeGpu: false })
+      } else if (!hasPaperViewports && !layout.isModelSpace) {
+        unloadPackageLayout(previousLayout, { disposeGpu: true })
+      }
+    } else if (!previousLayout.isModelSpace) {
+      releaseLayoutBatchBuffers(previousLayout)
+      previousLayout.osnap = undefined
+    } else if (!hasPaperViewports && !layout.isModelSpace) {
+      clearLayoutSceneGeometry(previousLayout)
+      releaseLayoutBatchBuffers(previousLayout)
+      previousLayout.osnap = undefined
+    }
+
+    // Hybrid OSNAP indexes lineBatches; restore CPU when GPU stayed resident
+    // (e.g. model space kept under paper viewports) after releaseCpuAfterGpuUpload.
+    if (measureEnabled) {
+      try {
+        await ensureLayoutCpuBatches(layout)
+        if (!layout.isModelSpace && hasPaperViewports && modelLayout) {
+          await ensureLayoutCpuBatches(modelLayout)
+        }
+      } catch (error) {
+        statusEl.textContent = i18n.t('status.loadFailed', {
+          error: String(error)
+        })
       }
     }
 
-    const nextLayerExtents = computeLayerExtentsMap(
-      layout.lineBatches,
-      layout.meshBatches
+    layoutExtents = resolveLayoutViewExtents(
+      layout,
+      snapshot.meta.viewExtents ?? snapshot.meta.extents
     )
-    layerExtents.clear()
-    for (const [name, extents] of nextLayerExtents) {
-      layerExtents.set(name, extents)
+    if (layoutHasBatchGeometry(layout)) {
+      const nextLayerExtents = computeLayerExtentsMap(
+        layout.lineBatches,
+        layout.meshBatches
+      )
+      layerExtents.clear()
+      for (const [name, extents] of nextLayerExtents) {
+        layerExtents.set(name, extents)
+      }
+      layerExtentsByLayout.set(layout.btrId, new Map(layerExtents))
     }
-    layoutExtents = resolveLayoutViewExtents(layout)
+    // Always attempt a refresh (same as paintPackageChunk). When CPU batches
+    // were already released, collect yields nothing and the helper keeps the
+    // pre-release cache so fitSmart still works.
+    refreshBatchExtentCache(layout)
     layerPanel?.syncLayerZoomButtons()
 
-    if (osnapIndex) {
+    if (measureEnabled) {
+      markOsnapReady(false)
+    }
+
+    if (osnapIndex && layoutHasBatchGeometry(layout)) {
       // Defer rebuild when ACEO sidecars are still pending — tessellating all
       // line/mesh batches first would freeze the UI and delay Network fetches.
       const layoutRef = packageSession?.manifest.layouts.find(
@@ -2157,10 +2694,10 @@ async function startViewer(): Promise<void> {
       const pendingOsnap =
         packageSession != null &&
         measureEnabled &&
-        !packageSession.loadedOsnapLayouts.has(layout.btrId) &&
+        (layout.osnap == null ||
+          !packageSession.loadedOsnapLayouts.has(layout.btrId)) &&
         (layoutRef?.osnapChunkIds?.length ?? 0) > 0
       if (!pendingOsnap) {
-        // Hybrid rebuild needs resident lineBatches when ACEO has no lines.
         const workEstimate = estimateOsnapRebuildWork(layout)
         if (workEstimate > 8000) {
           statusEl.textContent = i18n.t('status.buildingOsnap')
@@ -2171,20 +2708,16 @@ async function startViewer(): Promise<void> {
           for (const [name, visible] of layerVisible) {
             osnapIndex.setLayerHidden(name, visible === false)
           }
-        } finally {
           clearStatusBar()
+        } catch (error) {
+          statusEl.textContent = i18n.t('status.loadFailed', {
+            error: String(error)
+          })
         }
       }
     }
 
-    const saved = lastViewByLayout.get(btrId)
-    if (saved) {
-      flyTo(saved.centerX, saved.centerY, saved.zoom)
-    } else {
-      fit()
-      const framed = captureViewState()
-      originalByLayout.set(btrId, framed)
-    }
+    // Camera was already restored before progressive load; keep the same view.
 
     measure?.syncLayoutVisibility()
     markup?.syncLayoutVisibility()
@@ -2197,23 +2730,31 @@ async function startViewer(): Promise<void> {
     if (packageSession && measureEnabled) {
       try {
         await loadPackageLayoutOsnap(layout)
-        if (
-          !layout.isModelSpace &&
-          hasPaperViewports &&
-          modelLayout
-        ) {
+        if (!layout.isModelSpace && hasPaperViewports && modelLayout) {
           await loadPackageLayoutOsnap(modelLayout)
         }
         await rebuildOsnapForLoadedGeometry()
         bumpSnapCacheKey()
         render()
         measure?.refreshIdleStatus()
+        markOsnapReady(true)
       } catch (error) {
         statusEl.textContent = i18n.t('status.loadFailed', {
           error: String(error)
         })
+        markOsnapReady(true)
+      }
+    } else if (measureEnabled) {
+      try {
+        await rebuildOsnapForLoadedGeometry()
+        markOsnapReady(true)
+      } catch {
+        markOsnapReady(true)
       }
     }
+
+    // Drop CPU again now that the new layout is on GPU (+ snap index ready).
+    releaseCpuAfterGpuUpload()
   }
 
   controls.addEventListener('change', () => {
@@ -2258,8 +2799,6 @@ async function startViewer(): Promise<void> {
   renderer.domElement.addEventListener('contextmenu', event => {
     event.preventDefault()
   })
-
-  mainToolbarRef.current?.setDocumentReady(true)
 
   i18n.setOnChange(() => {
     readyStatus = ''
@@ -2356,14 +2895,11 @@ async function startViewer(): Promise<void> {
   const initialView = captureViewState()
   originalByLayout.set(layout.btrId, initialView)
   lastViewByLayout.set(layout.btrId, initialView)
-  // Shared typed arrays back the snapshot and THREE attributes. Releasing
-  // them would prevent switching to other layouts later in this session.
-  // Defer CPU buffer release until after hybrid OSNAP when measure is on —
-  // line snap is rebuilt from resident lineBatches.
-  if (!canSwitchLayouts && !packageSession && !measureEnabled) {
-    releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
-    releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
-    releaseSnapshotBatchBuffers(snapshot)
+  // Shared typed arrays back the snapshot and THREE attributes until hybrid
+  // OSNAP (measure) finishes. After that, release CPU — GPU stays; switching
+  // layouts rehydrates from package chunks or retained monolithic gzip.
+  if (!packageSession && !measureEnabled) {
+    releaseCpuAfterGpuUpload()
   }
   measure?.refreshIdleStatus()
   if (expiresAt != null) {
@@ -2373,27 +2909,35 @@ async function startViewer(): Promise<void> {
       onExpire: () => {
         // Keep the canvas mounted under the expired gate; interaction is blocked
         // by the loading overlay.
+        shortCutToolbarRef.current?.syncTopOffset()
       }
     })
+    shortCutToolbarRef.current?.syncTopOffset()
   }
   // Reveal the canvas before package chunks / OSNAP indexing finish so the
-  // drawing paints while background work continues.
+  // drawing paints while background work continues. Toolbar stays disabled
+  // until geometry is ready; canvas wheel / pinch zoom still works.
   hideLoading()
 
-  if (!packageSession && measureEnabled) {
-    try {
-      await rebuildOsnapForLoadedGeometry()
-      recomputeOsnapThresholdWcs()
-      bumpSnapCacheKey()
-      measure?.refreshIdleStatus()
-      render()
-    } catch (error) {
-      showViewerError(i18n.t('status.loadFailed', { error: String(error) }))
-    }
-    if (!canSwitchLayouts) {
-      releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
-      releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
-      releaseSnapshotBatchBuffers(snapshot)
+  if (!packageSession) {
+    markGeometryReady(true)
+    if (measureEnabled) {
+      markOsnapReady(false)
+      try {
+        await rebuildOsnapForLoadedGeometry()
+        recomputeOsnapThresholdWcs()
+        bumpSnapCacheKey()
+        measure?.refreshIdleStatus()
+        render()
+        markOsnapReady(true)
+      } catch (error) {
+        showViewerError(i18n.t('status.loadFailed', { error: String(error) }))
+        // Drawing is visible; allow measure/annotation without a full snap index.
+        markOsnapReady(true)
+      }
+      releaseCpuAfterGpuUpload()
+    } else {
+      markOsnapReady(true)
     }
   }
 
@@ -2415,11 +2959,26 @@ async function startViewer(): Promise<void> {
       bumpSnapCacheKey()
       measure?.refreshIdleStatus()
       render()
+      markGeometryReady(true)
+
+      // Cache per-layer extents while CPU batches are still resident.
+      const paintedExtents = computeLayerExtentsMap(
+        layout.lineBatches,
+        layout.meshBatches
+      )
+      layerExtents.clear()
+      for (const [name, extents] of paintedExtents) {
+        layerExtents.set(name, extents)
+      }
+      layerExtentsByLayout.set(layout.btrId, new Map(layerExtents))
+      refreshBatchExtentCache(layout)
+      layerPanel?.syncLayerZoomButtons()
 
       // ACEO now holds curves/points only (lines come from geometry batches).
       // Load the small catalog first, then build a hybrid index while CPU
-      // lineBatches are still resident — before releaseSnapshotBatchBuffers.
+      // lineBatches are still resident — before releaseCpuAfterGpuUpload.
       if (measureEnabled) {
+        markOsnapReady(false)
         for (const target of firstPaintLayouts) {
           await loadPackageLayoutOsnap(target)
         }
@@ -2428,15 +2987,18 @@ async function startViewer(): Promise<void> {
         bumpSnapCacheKey()
         measure?.refreshIdleStatus()
         render()
+        markOsnapReady(true)
+      } else {
+        markOsnapReady(true)
       }
 
-      if (!canSwitchLayouts) {
-        releaseLayerGroupsGeometryCpuArrays(paperLayerGroups)
-        releaseLayerGroupsGeometryCpuArrays(modelLayerGroups)
-        releaseSnapshotBatchBuffers(snapshot)
-      }
+      releaseCpuAfterGpuUpload()
     } catch (error) {
       showViewerError(i18n.t('status.loadFailed', { error: String(error) }))
+      // Unlock chrome even when package geometry / OSNAP failed mid-stream so
+      // the toolbar does not stay permanently disabled after the error gate.
+      markGeometryReady(true)
+      markOsnapReady(true)
     }
   }
 }
@@ -2869,11 +3431,7 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
   const applyTouchPreciseSample = (fingerX: number, fingerY: number) => {
     const sample = acexTouchPickStrategy().mapFingerToSample(fingerX, fingerY)
     previewDrawingPoint(sample.x, sample.y)
-    acexTouchPickStrategy().showPreciseHud(
-      touchPickHudHost,
-      sample.x,
-      sample.y
-    )
+    acexTouchPickStrategy().showPreciseHud(touchPickHudHost, sample.x, sample.y)
   }
   /** Idle box-select / zoom-window rubber band after a long-press or mouse down. */
   let boxGesture: {
@@ -3212,6 +3770,7 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
         boxGesture.activated = true
         boxGesture.startX = touchSession.x
         boxGesture.startY = touchSession.y
+        acedClearDomSelection()
         acexSetMobileSnapLoupePreciseCapture(true)
         if (kind === 'zoom-window') {
           getNavTools()?.handlePointerDown(touchSession.x, touchSession.y)
@@ -3292,6 +3851,7 @@ function setupToolPointerInput(options: AcExToolPointerInputOptions): void {
           event.clientY,
           () => {
             // Precise capture only: lock pan and start jig / HUD preview.
+            acedClearDomSelection()
             acexSetMobileSnapLoupePreciseCapture(true)
             applyTouchPreciseSample(touchSession.x, touchSession.y)
             render()

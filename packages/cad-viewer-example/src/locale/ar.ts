@@ -46,9 +46,10 @@ export default {
       progressive: 'العرض التدريجي',
       progressiveRendering: 'العرض التدريجي',
       on: 'تشغيل',
-      progressiveOnHint: 'إظهار عناصر الرسم أثناء التحميل',
+      progressiveOnHint:
+        'إظهار عناصر الرسم أثناء التحميل؛ يُخفى التقدم عند انتهاء تحويل الكيانات',
       off: 'إيقاف',
-      progressiveOffHint: 'الانتظار حتى اكتمال التحويل',
+      progressiveOffHint: 'الانتظار حتى اكتمال تحويل الكيانات والنص',
 
       nonPlottable: 'غير قابل للطباعة',
       nonPlottableLayers: 'الطبقات غير القابلة للطباعة',
@@ -65,7 +66,7 @@ export default {
       curveHigh: 'جودة',
       curveHighHint: 'منحنيات أنعم وذاكرة أكبر',
 
-      paperSpaceBackground: 'خلفية مساحة الورق',
+      paperSpaceBackground: 'خلفية الورق',
       paperSpaceWhite: 'أبيض',
       paperSpaceWhiteHint: 'سطح المكتب CAD / معاينة الطباعة',
       paperSpaceBlack: 'أسود',

@@ -46,9 +46,10 @@ export default {
       progressive: 'Aşamalı',
       progressiveRendering: 'Aşamalı oluşturma',
       on: 'Açık',
-      progressiveOnHint: 'Yükleme sırasında geometriyi göster',
+      progressiveOnHint:
+        'Yükleme sırasında geometriyi göster; varlık dönüşümü bitince ilerleme gizlenir',
       off: 'Kapalı',
-      progressiveOffHint: 'Dönüşüm tamamlanana kadar bekle',
+      progressiveOffHint: 'Varlık ve metin geometrisi dönüşene kadar bekle',
 
       nonPlottable: 'Yazdırılamayan',
       nonPlottableLayers: 'Yazdırılamayan katmanlar',
@@ -65,7 +66,7 @@ export default {
       curveHigh: 'Kalite',
       curveHighHint: 'Daha pürüzsüz eğriler, daha fazla bellek',
 
-      paperSpaceBackground: 'Kağıt alanı arka planı',
+      paperSpaceBackground: 'Kağıt arka planı',
       paperSpaceWhite: 'Beyaz',
       paperSpaceWhiteHint: 'Masaüstü CAD / yazdırma önizlemesi',
       paperSpaceBlack: 'Siyah',

@@ -46,9 +46,10 @@ export default {
       progressive: 'Průběžné',
       progressiveRendering: 'Průběžné vykreslování',
       on: 'Zapnuto',
-      progressiveOnHint: 'Zobrazit geometrii během načítání',
+      progressiveOnHint:
+        'Zobrazit geometrii během načítání; progress se skryje po převodu entit',
       off: 'Vypnuto',
-      progressiveOffHint: 'Čekat na dokončení převodu',
+      progressiveOffHint: 'Čekat na dokončení převodu entit i textu',
 
       nonPlottable: 'Netisknutelné',
       nonPlottableLayers: 'Netisknutelné hladiny',
@@ -65,7 +66,7 @@ export default {
       curveHigh: 'Kvalita',
       curveHighHint: 'Hladší křivky, více paměti',
 
-      paperSpaceBackground: 'Pozadí výkresového prostoru',
+      paperSpaceBackground: 'Pozadí papíru',
       paperSpaceWhite: 'Bílé',
       paperSpaceWhiteHint: 'Desktop CAD / náhled tisku',
       paperSpaceBlack: 'Černé',

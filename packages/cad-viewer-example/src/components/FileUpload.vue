@@ -240,7 +240,7 @@
             </div>
           </div>
 
-          <div class="setting-block">
+          <div class="setting-block setting-block--half">
             <h3 class="setting-label">
               {{ t('example.fileUpload.export') }}
             </h3>
@@ -274,7 +274,7 @@
             </div>
           </div>
 
-          <div class="setting-block">
+          <div class="setting-block setting-block--half">
             <h3 class="setting-label">
               {{ t('example.fileUpload.paperSpaceBackground') }}
             </h3>
@@ -693,7 +693,8 @@ const isValidFile = (file: File): boolean => {
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Six tracks so a row of three options is thirds and a row of two is halves. */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px 12px;
 }
 
@@ -701,10 +702,15 @@ const isValidFile = (file: File): boolean => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  grid-column: span 2;
 }
 
 .setting-block--full {
   grid-column: 1 / -1;
+}
+
+.setting-block--half {
+  grid-column: span 3;
 }
 
 .setting-label {
@@ -776,6 +782,11 @@ const isValidFile = (file: File): boolean => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .setting-block,
+  .setting-block--half {
+    grid-column: auto;
+  }
+
   .setting-block--full {
     grid-column: 1 / -1;
   }
@@ -792,6 +803,8 @@ const isValidFile = (file: File): boolean => {
     grid-template-columns: 1fr;
   }
 
+  .setting-block,
+  .setting-block--half,
   .setting-block--full {
     grid-column: auto;
   }

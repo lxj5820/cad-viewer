@@ -160,6 +160,27 @@ export default {
     copyPasswordFailed: 'تعذر نسخ كلمة المرور إلى الحافظة.'
   },
 
+  exportPdfDlg: {
+    ...enDialog.exportPdfDlg,
+    title: 'تصدير إلى PDF',
+    modelSpaceSection: 'مساحة النموذج',
+    modelSpaceDisplay: 'العرض',
+    modelSpaceDisplayHint: 'تصدير المحتوى المعروض حاليًا في نافذة العرض',
+    modelSpaceExtents: 'الامتدادات',
+    modelSpaceExtentsHint: 'تصدير امتدادات جميع الكائنات في المساحة الحالية',
+    paperSpaceSection: 'مساحة الورق',
+    exportLayouts: 'تصدير المخططات',
+    exportLayoutsHint: 'تضمين مخططات مساحة الورق كصفحات PDF إضافية',
+    textModeSection: 'النص',
+    textMode: 'عرض النص',
+    textModeText: 'كائنات نصية',
+    textModeTextHint: 'يبقي النص قابلاً للتحديد/البحث ويصغر الملف (نص SHX يبقى متجهًا)',
+    textModeVector: 'مخططات متجهة',
+    textModeVectorHint: 'يحوّل النص إلى خطوط وتعبئة مطابقة للشاشة، لكن الملف أكبر',
+    yes: 'نعم',
+    no: 'لا'
+  },
+
   quickSelectDlg: {
     ...enDialog.quickSelectDlg,
 

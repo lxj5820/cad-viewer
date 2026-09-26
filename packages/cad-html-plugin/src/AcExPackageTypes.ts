@@ -1,5 +1,6 @@
 import {
   ACEX_SNAPSHOT_VERSION,
+  type AcExExtents,
   type AcExLayerSnapshot,
   type AcExSnapshot,
   type AcExSnapshotVersion,
@@ -65,6 +66,11 @@ export interface AcExPackageLayoutRef {
   isModelSpace: boolean
   /** Paper-space viewports (model space omits this). */
   viewports?: AcExViewportSnapshot[]
+  /**
+   * AutoCAD saved view for this layout (model: VPORT `*ACTIVE`; paper: limits).
+   * Omitted when the drawing has no usable saved view.
+   */
+  savedView?: AcExExtents
   /** Geometry chunks for this layout, in paint order. */
   chunkIds: string[]
   /**
@@ -145,6 +151,24 @@ export const ACEX_MAX_GEOMETRY_BATCH_BYTES = 2 * 1024 * 1024
  * Large measure catalogs are split so hosts can fetch snap data in parallel.
  */
 export const ACEX_DEFAULT_OSNAP_CHUNK_MAX_BYTES = 512 * 1024
+
+/**
+ * Estimated uncompressed geometry+OSNAP size above which self-contained HTML
+ * switches from a monolithic ACEX payload to embedded progressive chunks.
+ */
+export const ACEX_EMBEDDED_CHUNK_THRESHOLD_BYTES = 8 * 1024 * 1024
+
+/**
+ * Max uncompressed ACEC size per chunk when embedding in a self-contained HTML
+ * file. Larger than the hosted-package default because there is no HTTP
+ * round-trip cost — fewer inflate/paint cycles improve first open.
+ */
+export const ACEX_EMBEDDED_CHUNK_MAX_BYTES = 12 * 1024 * 1024
+
+/**
+ * Max estimated uncompressed ACEO size per OSNAP chunk in embedded HTML.
+ */
+export const ACEX_EMBEDDED_OSNAP_CHUNK_MAX_BYTES = 2 * 1024 * 1024
 
 export { ACEX_SNAPSHOT_VERSION }
 

@@ -1273,5 +1273,42 @@ export default {
         global: 'Measure'
       }
     }
+  },
+  cpdf: {
+    modelSpaceFit: 'Model alanı çerçevesi [Kapsam(K)/Görüntü(G)]',
+    exportLayouts: 'Yerleşimleri dışa aktar',
+    textMode: 'Metin işleme [Metin(M)/Vektör(V)]',
+    keywords: {
+      extents: {
+        display: 'Kapsam(K)',
+        local: 'Kapsam',
+        global: 'Extents'
+      },
+      display: {
+        display: 'Görüntü(G)',
+        local: 'Görüntü',
+        global: 'Display'
+      },
+      text: {
+        display: 'Metin(M)',
+        local: 'Metin',
+        global: 'Text'
+      },
+      vector: {
+        display: 'Vektör(V)',
+        local: 'Vektör',
+        global: 'Vector'
+      },
+      yes: {
+        display: 'Evet(E)',
+        local: 'Evet',
+        global: 'Yes'
+      },
+      no: {
+        display: 'Hayır(H)',
+        local: 'Hayır',
+        global: 'No'
+      }
+    }
   }
 }

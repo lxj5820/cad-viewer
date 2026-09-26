@@ -41,6 +41,12 @@ cad-simple-viewer-cli \
 
 # No input file: start from a blank ISO drawing (write mode)
 cad-simple-viewer-cli -s ./create-drawing-dxf.scr -o ./out --mode write
+
+# Host fonts and templates yourself (fonts live under <base-url>/fonts/)
+cad-simple-viewer-cli \
+  -i ./drawing.dwg \
+  -s ./export-png.scr \
+  --base-url https://cdn.example.com/cad-data/
 ```
 
 With a local install, use `npx`:
@@ -57,8 +63,14 @@ npx cad-simple-viewer-cli -i ./drawing.dwg -s ./export-png.scr -o ./out
 | `-s, --script <file>` | `.scr` command script (**required**) |
 | `-o, --output <dir>` | Directory for downloaded exports (default: input file’s directory, or cwd when no `-i`) |
 | `--mode <read\|write>` | Document open mode (default: `read` with `-i`, `write` without `-i`) |
+| `--open-view-mode <extents\|saved>` | Frame view after open: `extents` (full drawing) or `saved` (AutoCAD VPORT). Default: `extents` in read, `saved` in write |
+| `--draw-no-plot-layers <true\|false>` | Draw entities on non-plottable layers (default: `false`) |
+| `--circle-sides <n>` | Max segments for circle tessellation (default: `50` draft) |
 | `--locale <code>` | Prompt/keyword locale (`en`, `zh`, …) |
+| `--base-url <url>` | Resource base URL for fonts and templates (`http(s)`). Fonts load from `<url>/fonts/`. Default: CDN `cad-data` |
 | `--logfile <path>` | Append start / finish / download log lines |
+
+Progressive rendering is always off in CLI mode so drawings open as quickly as possible (headless scripts do not need mid-open paints).
 
 ## AcCoreConsole mapping
 
@@ -129,6 +141,10 @@ const { outputDir, savedFiles } = await runHeadless({
   scriptPath: './export-png.scr',
   outputDir: './out',
   mode: 'read',                 // optional
+  openViewMode: 'extents',      // optional: 'extents' | 'saved'
+  drawNoPlotLayers: false,      // optional
+  circleSides: 50,              // optional
+  baseUrl: 'https://cdn.example.com/cad-data/', // optional
   locale: 'en',                 // optional
   logfile: './cli.log'          // optional
 })
@@ -139,5 +155,5 @@ console.log(outputDir, savedFiles)
 ## How it works
 
 1. The published package includes a prebuilt Playwright runner (`dist-runner/`).
-2. The CLI starts headless Chromium, opens the drawing (or a blank template), waits for entity convert / deferred text geometry, then runs `AcApDocManager.runScript()`.
+2. The CLI starts headless Chromium, opens the drawing (or a blank template) with progressive rendering forced off, waits for entity convert / deferred text geometry, then runs `AcApDocManager.runScript()`.
 3. Export commands trigger downloads; the CLI writes captured files under `-o`.

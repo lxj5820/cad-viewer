@@ -35,6 +35,7 @@ export default {
   message: {
     fetchingDrawingFile: '正在加载图纸文件...',
     exportingDxf: '正在导出 DXF ...',
+    exportingPdf: '正在导出 PDF ...',
     exportingEntityPreview: '正在导出图片 ...',
     collectingMemoryProfile: '正在分析内存 ...',
     fontCached: '字体已成功缓存',
@@ -46,8 +47,10 @@ export default {
     fontMissedReplacement: '"{font}"（已用 "{replacement}" 显示）',
     failedToGetAvaiableFonts: '无法从"{url}"获取可用的字体信息！',
     failedToOpenFile: '无法打开文件"{fileName}"！',
+    failedToOpenFileToast: '无法打开"{fileName}"。详情请查看通知中心。',
     failedToOpenFileWorkerOom:
-      '无法打开"{fileName}"。图纸过大，超出当前可用内存。',
+      '无法打开"{fileName}"。使用 LibreDWG 解析器时内存不足，导致打开失败。可点击{dwgParserLink}购买商用 DWG Parser，以支持更大图纸并避免此问题。',
+    failedToOpenFileWorkerOomLink: '此页面',
     failedToOpenFileWorkerTimeout: '无法打开"{fileName}"。解析图纸时操作超时。',
     failedToOpenFileFontLoadFailed:
       '无法打开"{fileName}"。无法加载图纸所需的字体。',
@@ -77,7 +80,7 @@ export default {
     },
     title: {
       failedToOpenFile: '无法打开文件',
-      failedToOpenFileWorkerOom: '图纸过大',
+      failedToOpenFileWorkerOom: '内存不足',
       failedToOpenFileWorkerTimeout: '打开超时',
       failedToOpenFileFontLoadFailed: '字体加载失败',
       failedToOpenFileLicenseExpired: '许可证已过期',
@@ -162,7 +165,7 @@ export default {
   touchPointTutorial: {
     title: '怎样可以精确取点？',
     description:
-      '手指在屏幕上长按1s左右，上方出现十字，手指移动时十字跟随移动并自动捕捉。取点更精准。',
+      '手指在屏幕上长按0.5s左右，上方出现十字，手指移动时十字跟随移动并自动捕捉。取点更精准。',
     snoozeToday: '今日不再提醒',
     hideForever: '不再提醒',
     ok: '我知道了'

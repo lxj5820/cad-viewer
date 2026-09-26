@@ -2,13 +2,17 @@ import {
   AcTrLinePatternShaders,
   type AcTrPatternLine,
   createGradientHatchShaderMaterialFromUniforms,
-  createHatchPatternShaderMaterial
+  createHatchPatternShaderMaterial,
+  wrapPatternBaseToLocalFrame
 } from '@mlightcad/three-renderer'
 import * as THREE from 'three'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 
 import { copyFloat32Range } from './AcExBatchBuffers'
-import { createTextureFromExportedBytes } from './AcExMeshTextureExport'
+import {
+  createTextureFromExportedBytes,
+  releaseExportedTextureBytes
+} from './AcExMeshTextureExport'
 import type {
   AcExGradientFill,
   AcExHatchPattern,
@@ -328,6 +332,50 @@ export function transformHatchPatternToWorldSpace(
   }
 }
 
+/**
+ * Moves a world-space hatch pattern into the same local frame as rebased mesh
+ * vertices (`batch.offset`), then period-wraps each line base so the offline
+ * hatch shader keeps float32 precision at large survey coordinates.
+ *
+ * {@link AcExHatchPatternLine.offset} is already in the hatch-shader uniform
+ * frame (rotated by `-line.angle` when the live material was built, then
+ * optionally transformed by {@link transformHatchPatternToWorldSpace}). Do
+ * **not** rotate it again before {@link wrapPatternBaseToLocalFrame} — that
+ * helper expects the pre-rotated offset, matching
+ * `AcTrFillMaterialManager.createHatchShaderMaterial`.
+ */
+export function rebaseHatchPatternToLocalOffset(
+  pattern: AcExHatchPattern,
+  offset: [number, number, number]
+): AcExHatchPattern {
+  return {
+    patternAngle: pattern.patternAngle,
+    patternLines: pattern.patternLines.map(line => {
+      const base = new THREE.Vector2(
+        line.base[0] - offset[0],
+        line.base[1] - offset[1]
+      )
+      // Shader-frame offset from extractHatchPattern / world transform — already
+      // rotated by -line.angle; pass through to wrapPatternBaseToLocalFrame.
+      const patternOffset = new THREE.Vector2(line.offset[0], line.offset[1])
+      wrapPatternBaseToLocalFrame(
+        base,
+        patternOffset,
+        line.angle,
+        pattern.patternAngle,
+        line.patternLength
+      )
+      return {
+        angle: line.angle,
+        base: [base.x, base.y] as [number, number],
+        offset: [line.offset[0], line.offset[1]] as [number, number],
+        dashLengths: [...line.dashLengths],
+        patternLength: line.patternLength
+      }
+    })
+  }
+}
+
 /** Optional hooks when building viewer materials from exported mesh batches. */
 export interface AcExViewerMeshMaterialOptions {
   /**
@@ -388,6 +436,8 @@ export function createViewerMeshMaterial(
     })
     material.map = createTextureFromExportedBytes(batch.texture, {
       onLoad: () => {
+        // PNG/JPEG bytes are no longer needed once the GPU texture exists.
+        releaseExportedTextureBytes(batch.texture)
         material.opacity = 1
         material.depthWrite = true
         material.needsUpdate = true

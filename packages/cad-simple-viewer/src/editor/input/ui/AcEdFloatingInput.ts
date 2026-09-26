@@ -9,6 +9,7 @@ import { AcEdBaseView } from '../../view'
 import { AcEdOsnapPoint, AcEdOsnapResolver } from '../AcEdOsnapResolver'
 import { constrainToTracking } from '../AcEdPolarTracking'
 import { AcEdMarkerManager } from '../marker'
+import { acedClearDomSelection } from './AcEdCanvasTouchCalloutGuard'
 import { AcEdFloatingInputBoxes } from './AcEdFloatingInputBoxes'
 import {
   AcEdFloatingInputCancelCallback,
@@ -129,6 +130,8 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
   private mouseClickArmed = false
   /** Whether to suppress UI display while keeping input active */
   private suppressDisplay: boolean = false
+  /** When false, click / touch pick must not commit (string prompts). */
+  private allowPickCommit = true
   /** Cached sysvar handler */
   private boundOnInputSysVarChanged: (args: {
     name: string
@@ -152,6 +155,7 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
     super(view, options)
 
     this.allowPrompt = options.allowPrompt !== false
+    this.allowPickCommit = options.allowPickCommit !== false
     this.suppressDisplay = !this.isDynamicInputEnabled()
     this.orthoReferencePoint =
       options.orthoReferencePoint ?? options.basePoint ?? undefined
@@ -227,7 +231,8 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
     })
     this.parent.addEventListener('pointermove', this.boundOnPointerMove)
     this.parent.addEventListener('touchstart', this.boundOnTouchStart, {
-      passive: false
+      passive: false,
+      capture: true
     })
     this.parent.addEventListener('contextmenu', this.boundOnContextMenu, true)
     // Release / leftover touch tracking can happen off-canvas.
@@ -329,7 +334,7 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
       true
     )
     this.parent.removeEventListener('pointermove', this.boundOnPointerMove)
-    this.parent.removeEventListener('touchstart', this.boundOnTouchStart)
+    this.parent.removeEventListener('touchstart', this.boundOnTouchStart, true)
     this.parent.removeEventListener('contextmenu', this.boundOnContextMenu, true)
     window.removeEventListener('pointerup', this.boundOnPointerUp)
     window.removeEventListener('pointercancel', this.boundOnPointerCancel)
@@ -389,6 +394,7 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
 
   private handleClick(e: MouseEvent) {
     if (!this.visible) return
+    if (!this.allowPickCommit) return
     // Mouse/pen: commit only after this prompt saw a canvas pointerdown.
     // Touch commits on pointerup. Compatibility mouse events after a long-press
     // (including while the finger is still moving the loupe) must not commit
@@ -420,6 +426,7 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
    */
   private handlePointerDown(e: PointerEvent) {
     if (!this.visible || e.button !== 0) return
+    if (!this.allowPickCommit) return
     if (e.pointerType !== 'touch') {
       // Long-press (and finger move while the loupe is open) must not arm a
       // mouse click. Compatibility `pointerdown` after touch `pointerup` also
@@ -442,6 +449,8 @@ export class AcEdFloatingInput<T> extends AcEdFloatingMessage {
     this.touchSession.start(e.pointerId, e.clientX, e.clientY, () => {
       // Precise capture only: disable pan and start the jig / HUD.
       // Before the long-press, one-finger drag is navigation — no rubber-band.
+      // Drop any iOS selection handles that appeared before touchstart won.
+      acedClearDomSelection()
       this.view.setNavigationEnabled(false)
       this.applyTouchPreciseSample(this.touchSession.x, this.touchSession.y)
       this.refreshTouchPreciseHud()

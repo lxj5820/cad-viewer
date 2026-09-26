@@ -35,6 +35,7 @@ export default {
   message: {
     fetchingDrawingFile: 'Fetching file ...',
     exportingDxf: 'Exporting DXF ...',
+    exportingPdf: 'Exporting PDF ...',
     exportingEntityPreview: 'Exporting image ...',
     collectingMemoryProfile: 'Analyzing memory ...',
     fontCached: 'Font cached successfully',
@@ -47,8 +48,11 @@ export default {
     fontMissedReplacement: '"{font}" (displaying with "{replacement}")',
     failedToGetAvaiableFonts: 'Failed to get available fonts from "{url}"!',
     failedToOpenFile: 'Failed to open file "{fileName}"!',
+    failedToOpenFileToast:
+      'Failed to open "{fileName}". Check the notification center for details.',
     failedToOpenFileWorkerOom:
-      'Failed to open "{fileName}". The drawing is too large for available memory.',
+      'Failed to open "{fileName}". Parsing failed because available memory was insufficient (LibreDWG parser). You can click {dwgParserLink} to purchase the commercial DWG parser and open large drawings without this crash.',
+    failedToOpenFileWorkerOomLink: 'this page',
     failedToOpenFileWorkerTimeout:
       'Failed to open "{fileName}". The operation timed out while parsing the drawing.',
     failedToOpenFileFontLoadFailed:
@@ -81,7 +85,7 @@ export default {
     },
     title: {
       failedToOpenFile: 'Failed to Open File',
-      failedToOpenFileWorkerOom: 'Drawing Too Large',
+      failedToOpenFileWorkerOom: 'Insufficient Memory',
       failedToOpenFileWorkerTimeout: 'Open Timed Out',
       failedToOpenFileFontLoadFailed: 'Font Load Failed',
       failedToOpenFileLicenseExpired: 'License Expired',
@@ -166,7 +170,7 @@ export default {
   touchPointTutorial: {
     title: 'How to pick points precisely?',
     description:
-      'Long-press on the screen for about 1 second. A cross appears above your finger and follows as you move, snapping to geometry for more accurate picks.',
+      'Long-press on the screen for about 0.5 seconds. A cross appears above your finger and follows as you move, snapping to geometry for more accurate picks.',
     snoozeToday: 'Don\'t remind me today',
     hideForever: 'Don\'t remind me again',
     ok: 'Got it'

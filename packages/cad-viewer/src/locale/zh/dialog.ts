@@ -117,6 +117,25 @@ export default {
     copyPasswordSuccess: '密码已复制到剪贴板。',
     copyPasswordFailed: '无法复制密码到剪贴板。'
   },
+  exportPdfDlg: {
+    title: '导出为 PDF',
+    modelSpaceSection: '模型空间',
+    modelSpaceDisplay: '显示',
+    modelSpaceDisplayHint: '导出当前视口中显示的内容',
+    modelSpaceExtents: '范围',
+    modelSpaceExtentsHint: '导出当前空间中所有对象的范围',
+    paperSpaceSection: '图纸空间',
+    exportLayouts: '导出布局',
+    exportLayoutsHint: '将图纸空间布局作为额外的 PDF 页面导出',
+    textModeSection: '文字',
+    textMode: '文字渲染方式',
+    textModeText: '文字对象',
+    textModeTextHint: '文字保留为可选中/可搜索的文字对象，文件显著减小（SHX 文字仍按矢量输出）',
+    textModeVector: '矢量轮廓',
+    textModeVectorHint: '文字转换为线条和填充，与屏幕显示一致，但文件较大',
+    yes: '是',
+    no: '否'
+  },
   quickSelectDlg: {
     title: '快速选择',
     applyTo: '应用到',

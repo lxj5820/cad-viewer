@@ -118,7 +118,7 @@ import {
   useSettings
 } from '../composable'
 import { LocaleProp } from '../locale'
-import { resolveOpenFileErrorMessage } from '../util/openFileErrorMessage'
+import { resolveOpenFileErrorToastMessage } from '../util/openFileErrorMessage'
 import { MlDialogManager, MlFontFileReader } from './common'
 import { MlEntityInfo, MlToolBars } from './layout'
 import { MlNotificationCenter } from './notification'
@@ -190,10 +190,20 @@ interface Props {
    */
   drawNoPlotLayers?: boolean
   /**
-   * Whether to render entities incrementally while a drawing is opening.
-   * When omitted, {@link AcApDocManager} defaults to `false`.
+   * Whether opening a drawing is progressive.
+   *
+   * Controls both stages: mid-open paints during entity convert, and whether
+   * the open overlay waits for deferred text geometry. When `false` (default),
+   * the canvas waits until entities and deferred text geometry are idle.
+   * When `true`, geometry paints as it converts and the overlay hides when
+   * entity convert finishes. Deprecated `waitForTextGeometry` is ignored.
    */
   progressiveRendering?: boolean
+  /**
+   * @deprecated Ignored. Both stages of progressive rendering are controlled
+   * by {@link progressiveRendering}. Kept so existing templates still compile.
+   */
+  waitForTextGeometry?: boolean
   /**
    * How to frame the view when the document finishes opening.
    * When omitted, Read and Review use {@link AcApOpenViewMode.Extents};
@@ -345,7 +355,7 @@ const openFileFromUrl = async (url: string) => {
   } catch (error) {
     log.error('Failed to open file from URL:', error)
     ElMessage({
-      message: resolveOpenFileErrorMessage(t, { fileName: url }),
+      message: resolveOpenFileErrorToastMessage(t, { fileName: url }),
       grouping: true,
       type: 'error',
       showClose: true
@@ -395,7 +405,7 @@ const openLocalFile = async (file: File) => {
     }
   } catch {
     ElMessage({
-      message: resolveOpenFileErrorMessage(t, { fileName: file.name }),
+      message: resolveOpenFileErrorToastMessage(t, { fileName: file.name }),
       grouping: true,
       type: 'error',
       showClose: true
@@ -568,9 +578,8 @@ eventBus.on('open-local-file-started', ({ mode }) => {
 // Handle file opening failures with user-friendly error messages
 eventBus.on('failed-to-open-file', params => {
   endPendingOpen()
-  const message = resolveOpenFileErrorMessage(t, params)
   ElMessage({
-    message,
+    message: resolveOpenFileErrorToastMessage(t, params),
     grouping: true,
     type: 'error',
     showClose: true,

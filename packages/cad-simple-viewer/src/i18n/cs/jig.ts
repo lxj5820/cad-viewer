@@ -1270,5 +1270,42 @@ export default {
         global: 'Measure'
       }
     }
+  },
+  cpdf: {
+    modelSpaceFit: 'Rám modelového prostoru [Rozsah(E)/Zobrazení(D)]',
+    exportLayouts: 'Exportovat rozvržení',
+    textMode: 'Vykreslení textu [Text(T)/Vektor(V)]',
+    keywords: {
+      extents: {
+        display: 'Rozsah(E)',
+        local: 'Rozsah',
+        global: 'Extents'
+      },
+      display: {
+        display: 'Zobrazení(D)',
+        local: 'Zobrazení',
+        global: 'Display'
+      },
+      text: {
+        display: 'Text(T)',
+        local: 'Text',
+        global: 'Text'
+      },
+      vector: {
+        display: 'Vektor(V)',
+        local: 'Vektor',
+        global: 'Vector'
+      },
+      yes: {
+        display: 'Ano(Y)',
+        local: 'Ano',
+        global: 'Yes'
+      },
+      no: {
+        display: 'Ne(N)',
+        local: 'Ne',
+        global: 'No'
+      }
+    }
   }
 }

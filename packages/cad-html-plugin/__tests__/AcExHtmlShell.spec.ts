@@ -37,6 +37,14 @@ describe('ACEX_HTML_SHELL_CSS', () => {
     expect(ACEX_HTML_SHELL_CSS).toContain('transform: translate(-50%, -50%);')
   })
 
+  it('suppresses iOS canvas long-press copy / selection callout', () => {
+    expect(ACEX_HTML_SHELL_CSS).toContain('-webkit-touch-callout: none')
+    expect(ACEX_HTML_SHELL_CSS).toContain('-webkit-user-select: none')
+    expect(ACEX_HTML_SHELL_CSS).toContain(
+      '-webkit-tap-highlight-color: transparent'
+    )
+  })
+
   it('aliases Element Plus primary so shared measure-tool SVGs resolve', () => {
     expect(ACEX_HTML_SHELL_CSS).toContain(
       '--el-color-primary: var(--mlcad-accent)'
@@ -91,6 +99,26 @@ describe('ACEX_HTML_SHELL_CSS', () => {
     )
   })
 
+  it('keeps message bar and expiry badge in one top chrome row', () => {
+    expect(ACEX_HTML_SHELL_CSS).toContain('#mlcad-top-chrome {')
+    expect(ACEX_HTML_SHELL_CSS).toContain('display: flex;')
+    expect(ACEX_HTML_SHELL_CSS).toMatch(
+      /#mlcad-status-bar \{[\s\S]*?flex: 1 1 auto;/
+    )
+    expect(ACEX_HTML_SHELL_CSS).toMatch(
+      /#mlcad-status-bar \{[\s\S]*?text-overflow: ellipsis;/
+    )
+    expect(ACEX_HTML_SHELL_CSS).toMatch(
+      /\.mlcad-expiry-badge \{[\s\S]*?margin-left: auto;/
+    )
+    expect(ACEX_HTML_SHELL_CSS).toMatch(
+      /\.mlcad-expiry-badge \{[\s\S]*?white-space: nowrap;/
+    )
+    expect(ACEX_HTML_SHELL_CSS).not.toContain(
+      '.mlcad-expiry-badge {\n    position: fixed;'
+    )
+  })
+
   it('hides sidebar chrome while a draw session is active', () => {
     expect(ACEX_HTML_SHELL_CSS).toContain(
       '#mlcad-root.mlcad-session-active #mlcad-sidebar {'
@@ -109,6 +137,7 @@ describe('buildAcExHtmlShellBody', () => {
     const html = buildAcExHtmlShellBody('#000000', 'view')
 
     expect(html).toContain('id="mlcad-canvas-host"')
+    expect(html).toContain('id="mlcad-top-chrome"')
     expect(html).toContain('id="mlcad-status-bar"')
     expect(html).toContain(
       '<nav id="mlcad-toolbar" data-i18n-attr="aria-label" data-i18n-key="toolbar.viewerTools" aria-label="Viewer tools"></nav>'

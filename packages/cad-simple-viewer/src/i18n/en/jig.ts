@@ -1273,5 +1273,42 @@ export default {
         global: 'Measure'
       }
     }
+  },
+  cpdf: {
+    modelSpaceFit: 'Model space frame [Extents(E)/Display(D)]',
+    exportLayouts: 'Export layouts',
+    textMode: 'Text rendering [Text(T)/Vector(V)]',
+    keywords: {
+      extents: {
+        display: 'Extents(E)',
+        local: 'Extents',
+        global: 'Extents'
+      },
+      display: {
+        display: 'Display(D)',
+        local: 'Display',
+        global: 'Display'
+      },
+      text: {
+        display: 'Text(T)',
+        local: 'Text',
+        global: 'Text'
+      },
+      vector: {
+        display: 'Vector(V)',
+        local: 'Vector',
+        global: 'Vector'
+      },
+      yes: {
+        display: 'Yes(Y)',
+        local: 'Yes',
+        global: 'Yes'
+      },
+      no: {
+        display: 'No(N)',
+        local: 'No',
+        global: 'No'
+      }
+    }
   }
 }

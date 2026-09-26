@@ -6,8 +6,9 @@ import {
 } from '@mlightcad/cad-simple-ui-plugin'
 import { acuiRegisterSimpleUiPlugin } from '@mlightcad/cad-simple-ui-plugin/register'
 import {
+  acapAppendLinkedText,
   AcApDocManager,
-  acapFormatOpenFileErrorMessage,
+  acapFormatOpenFileErrorToastMessage,
   AcApOpenDatabaseOptions,
   AcApSettingManager,
   acedApplyUiTheme,
@@ -875,7 +876,7 @@ class CadViewerApp {
     })
 
     eventBus.on('failed-to-open-file', params => {
-      this.showMessage(acapFormatOpenFileErrorMessage(params), 'error')
+      this.showMessage(acapFormatOpenFileErrorToastMessage(params), 'error')
       this.finishLoadingState()
     })
 
@@ -902,9 +903,7 @@ class CadViewerApp {
         commandAliases: EXAMPLE_COMMAND_ALIASES,
         // Main-thread MTEXT uses less memory; worker mode is opt-in via ?worker=1.
         useMainThreadDraw: openProf ? !useWorkers : true,
-        openDocumentDefaults: () => this.buildOpenOptions({
-          progressiveRendering: false
-        }),
+        openDocumentDefaults: () => this.buildOpenOptions(),
         webworkerFileUrls: {
           mtextRender: `./workers/${MTEXT_RENDERER_WORKER_FILE}`,
           dwgParser: dwgParserUrl
@@ -1091,7 +1090,7 @@ class CadViewerApp {
 
     try {
       const success = await AcApDocManager.instance.newDocument(
-        this.buildOpenOptions({ progressiveRendering: false })
+        this.buildOpenOptions()
       )
       if (!success) {
         throw new Error('Failed to create new drawing')
@@ -1191,9 +1190,7 @@ class CadViewerApp {
     this.clearMessages()
 
     try {
-      const options: AcApOpenDatabaseOptions = this.buildOpenOptions({
-        progressiveRendering: false
-      })
+      const options: AcApOpenDatabaseOptions = this.buildOpenOptions()
 
       const success = await AcApDocManager.instance.openUrl(url, options)
 
@@ -1287,7 +1284,7 @@ class CadViewerApp {
     }
 
     const text = document.createElement('span')
-    text.textContent = message
+    acapAppendLinkedText(text, message)
     text.style.flex = '1'
     text.style.lineHeight = '1.4'
     popup.appendChild(text)

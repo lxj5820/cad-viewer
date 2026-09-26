@@ -124,6 +124,29 @@ export default {
     copyPasswordSuccess: 'Parola panoya kopyalandı.',
     copyPasswordFailed: 'Parola panoya kopyalanamadı.'
   },
+  exportPdfDlg: {
+    title: 'PDF\'e Dışa Aktar',
+    modelSpaceSection: 'Model alanı',
+    modelSpaceDisplay: 'Görüntü',
+    modelSpaceDisplayHint: 'Görünüm alanında şu an gösterilen içeriği dışa aktar',
+    modelSpaceExtents: 'Kapsam',
+    modelSpaceExtentsHint:
+      'Geçerli alandaki tüm nesnelerin kapsamını dışa aktar',
+    paperSpaceSection: 'Kağıt alanı',
+    exportLayouts: 'Yerleşimleri dışa aktar',
+    exportLayoutsHint:
+      'Kağıt alanı yerleşimlerini ek PDF sayfaları olarak dahil et',
+    textModeSection: 'Metin',
+    textMode: 'Metin işleme',
+    textModeText: 'Metin nesneleri',
+    textModeTextHint:
+      'Metni seçilebilir/aranabilir tutar ve dosyayı küçültür (SHX metin vektör kalır)',
+    textModeVector: 'Vektör konturlar',
+    textModeVectorHint:
+      'Metni çizgi ve dolguya dönüştürür, ekrana uygun, ancak dosya daha büyük',
+    yes: 'Evet',
+    no: 'Hayır'
+  },
   quickSelectDlg: {
     title: 'Hızlı Seçim',
     applyTo: 'Uygulanacak yer',
